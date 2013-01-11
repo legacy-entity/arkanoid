@@ -837,7 +837,7 @@ var slice = [].slice
 var Entity = require('entity')
 
 /**
- * Export Manager.
+ * Manager factory.
  */
 
 module.exports = function (parent) {
@@ -860,10 +860,19 @@ function Manager (parent) {
 
   this.listeners = {}
 
-  this._state = 'none'
+  this.state('ready')
 }
 
 var proto = Manager.prototype
+
+/**
+ * Listen on events.
+ *
+ * @param {string} ev 
+ * @param {fn} fn 
+ * @return {object} this
+ * @api public
+ */
 
 proto.on = function (ev, fn) {
   this.listeners[ev] = this.listeners[ev] || []
@@ -871,19 +880,41 @@ proto.on = function (ev, fn) {
   return this
 }
 
+/**
+ * Emit events.
+ *
+ * @param {string} ev 
+ * @param {mixed} arguments
+ * @return {object} this
+ * @api public
+ */
+
 proto.emit = function (ev, a, b, c, d) {
   if (!(ev in this.listeners)) return
-  setTimeout(function () {
-    for (var i=0, len=this.listeners[ev].length; i<len; i++) {
-      this.listeners[ev][i].call(this, a, b, c, d)
-    }
-  }.bind(this), 0)
+  for (var i=0, len=this.listeners[ev].length; i<len; i++) {
+    this.listeners[ev][i].call(this, a, b, c, d)
+  }
   return this
 }
+
+/**
+ * Determine whether this is the root manager.
+ *
+ * @return {boolean}
+ * @api public
+ */
 
 proto.isRoot = function () {
   return this.parent === this
 }
+
+/**
+ * Attach listeners for the methods of an object.
+ *
+ * @param {object} obj
+ * @return {object} this
+ * @api private
+ */
 
 proto.addListeners = function (obj) {
   Object.keys(obj)
@@ -903,10 +934,14 @@ proto.addListeners = function (obj) {
         })
       }
     }, this)
+  return this
 }
 
 /**
  * Apply component data to an entity or all.
+ *
+ * @param {entity} [e]
+ * @api public
  */
 
 proto.applyComponents = function (e) {
@@ -922,10 +957,28 @@ proto.applyComponents = function (e) {
   return this
 }
 
+/**
+ * Generate a string serialized snapshot of our entities.
+ *
+ * @return {string}
+ * @api public
+ */
+
 proto.snapshot = function () {
   return JSON.stringify(this.entities)
 }
 
+/**
+ * Main event handlers.
+ *
+ * @api public
+ */
+
+proto.init = function () { return this.state('init') }
+proto.start = function () { return this.state('start') }
+proto.pause = function () { return this.state('pause') }
+proto.stop = function () { return this.state('stop') }
+proto.tear = function () { return this.state('tear') }
 proto.reset = function () {
   this.stop()
   this.tear()
@@ -936,11 +989,13 @@ proto.reset = function () {
   return this
 }
 
-proto.init = function () { return this.state('init') }
-proto.start = function () { return this.state('start') }
-proto.pause = function () { return this.state('pause') }
-proto.stop = function () { return this.state('stop') }
-proto.tear = function () { return this.state('tear') }
+/**
+ * State accessor. Also emits state on change.
+ *
+ * @param {string} [s]
+ * @return {string} s
+ * @api private
+ */
 
 proto.state = function (s) {
   if (null == s) return this._state
@@ -948,6 +1003,14 @@ proto.state = function (s) {
   this.emit(s)
   return this
 }
+
+/**
+ * Get all entities using all the components in the array.
+ *
+ * @param {array} arr
+ * @return {array} entities
+ * @api public
+ */
 
 proto.of = function (arr) {
   var res = []
@@ -979,7 +1042,18 @@ proto.of = function (arr) {
   return res
 }
 
-proto.each = function (c) {
+/**
+ * Iterate entities of certain components,
+ * or through all if no component is passed.
+ *
+ * @param {component} c
+ * ...
+ * @param {fn} fn
+ * @return {object} this
+ * @api public
+ */
+
+proto.each = function (c, fn) {
   var args
   if ('function' == typeof c) {
     this.entities.forEach(c, this)
@@ -991,14 +1065,38 @@ proto.each = function (c) {
   else {
     args = slice.call(arguments)
   }
-  var fn = args.pop()
+  fn = args.pop()
   this.of(args).forEach(fn)
   return this
 }
 
+/**
+ * Get the first entity matching component.
+ *
+ * @param {component} c 
+ * @return {entity}
+ * @api public
+ */
+
 proto.get = function (c) {
   return this.of(c)[0]
 }
+
+/**
+ * Use an entity, system or manager.
+ * 
+ * Registers an entity (creating a new one or reusing
+ * the one passed).
+ * 
+ * Registers a system to be used. Order added matters.
+ *
+ * Adds a manager to our children.
+ *
+ * @param {manager|system|entity} item
+ * @param {boolean} reuse
+ * @return {object} this
+ * @api public
+ */
 
 proto.use = function (item, reuse) {
   if (item instanceof Entity) {
@@ -1033,16 +1131,34 @@ proto.use = function (item, reuse) {
       this.children.push(item)
     }
   }
-  else console.log('unknown', item)
+  else console.error('unknown', item)
   return this
 }
+
+/**
+ * Register the components of an entity.
+ *
+ * @param {entity} e 
+ * @return {object} this
+ * @api private
+ */
 
 proto.registerComponents = function (e) {
   var self = this
   e.components.forEach(function (c) {
     self.reg(c, e)
   })
+  return this
 }
+
+/**
+ * Register a component for an entity.
+ *
+ * @param {component} c 
+ * @param {entity} e 
+ * @return {object} this
+ * @api private
+ */
 
 proto.reg = function (c, e) {
   var comps = this.components
@@ -1057,7 +1173,18 @@ proto.reg = function (c, e) {
     index.push(c)
     comps[index.length-1] = [e]
   }
+  return this
 }
+
+/**
+ * Join (late) an entity.
+ * It will try to apply components and systems
+ * based on the current state.
+ *
+ * @param {entity} e 
+ * @return {object} this
+ * @api public
+ */
 
 proto.join = function (e) {
   this.applyComponents(e)
@@ -1075,6 +1202,14 @@ proto.join = function (e) {
   return this
 }
 
+/**
+ * Create an entity of components, and use it.
+ *
+ * @param {component} c, [c, [...]]
+ * @return {entity} entity
+ * @api public
+ */
+
 proto.createEntity = function () {
   var args = slice.call(arguments)
   var e = args[0]
@@ -1088,12 +1223,28 @@ proto.createEntity = function () {
   return e
 }
 
+/**
+ * Remove all entities.
+ *
+ * @return {object} this
+ * @api public
+ */
+
 proto.removeAllEntities = function () {
   this.entities.slice().forEach(function (e) {
     this.root.removeEntity(e)
     this.removeEntity(e)
   }, this)
+  return this
 }
+
+/**
+ * Remove an entity.
+ *
+ * @param {entity} e
+ * @return {object) this
+ * @api public
+ */
 
 proto.removeEntity = function (e) {
   var self = this
@@ -1109,13 +1260,30 @@ proto.removeEntity = function (e) {
       if (~idx) comps.splice(idx, 1)
     }
   })
+
+  return this
 }
+
+/**
+ * Create a manager and use it.
+ *
+ * @return {manager}
+ * @api public
+ */
 
 proto.createManager = function () {
   var manager = new Manager(this)
   this.use(manager)
   return manager
 }
+
+/**
+ * Mixin helper.
+ *
+ * @param {object} target
+ * @param {object} source
+ * @param {boolean} force
+ */
 
 function mixin (t, s, f) {
   for (var k in s) {
@@ -1184,147 +1352,160 @@ require.register("entity-loop/index.js", function(exports, require, module){
 var raf = require('raf')
 
 /**
- * Loop system.
- */
-
-var loop = module.exports = {}
-
-/**
- * Init loop.
+ * Returns a loop system using dt (delta time).
  *
+ * @param {float} dt 
+ * @return {system} loop
  * @api public
  */
 
-loop.init = function () {
-  this.dt = 1000/60
-  this.maxDiff = this.dt * 5
-  this.reset()
-}
+module.exports = function (dt) {
 
-/**
- * Resets loop.
- *
- * @api private
- */
+  /**
+   * Loop system.
+   */
 
-loop.reset = function () {
-  this.running = false
-  this.now = 0
-  this.before = 0
-  this.diff = 0
-  this.frame = 0
-  this.timeElapsed = 0
-  this.accumulator = 0
-}
+  var loop = {}
 
-/**
- * Starts loop.
- *
- * @api public
- */
+  /**
+   * Init loop.
+   *
+   * @api public
+   */
 
-loop.start = function () {
-  this.running = true
-  // subtracting diff recovers in case of pause
-  this.before = Date.now() - this.diff
-  this.tick()
-}
-
-/**
- * Pauses loop.
- *
- * @api public
- */
-
-loop.pause = function () {
-  this.running = false
-  this.diff = Date.now() - this.before
-}
-
-/**
- * Stops loop.
- * 
- * @api private
- */
-
-loop.stop = function () {
-  this.running = false
-  this.reset()
-}
-
-/**
- * Ticks loop.
- *
- * @return {object} this
- * @api private
- */
-
-loop.tick = function () {
-  function tick () {
-    if (this.running) raf(tick)
-
-    this.frame++
-
-    this.now = Date.now()
-    this.diff = this.now - this.before
-    this.before = this.now
-
-    if (this.diff > this.maxDiff) {
-      this.diff = 0
-    }
-    this.add(this.diff)
-
-    while (this.overflow()) {
-      this.emit('update', this.frame, this.timeElapsed)
-    }
-    this.emit('render', this.alpha())
+  loop.init = function () {
+    this.dt = dt || 1000/60
+    this.maxDiff = this.dt * 5
+    this.reset()
   }
 
-  tick = tick.bind(this)
-  tick()
-  
-  return this
-}
+  /**
+   * Resets loop.
+   *
+   * @api private
+   */
 
-/**
- * Adds to loop accumulator and elapsed.
- *
- * @param {number} ms
- * @return {object} this
- * @api private
- */
-
-loop.add = function (ms) {
-  this.timeElapsed += ms
-  this.accumulator += ms
-  return this
-}
-
-/**
- * Overflow loop.
- * 
- * @return {boolean} whether this is an underrun
- * @api private
- */
-
-loop.overflow = function () {
-  if (this.accumulator >= this.dt) {
-    this.accumulator -= this.dt
-    return true
+  loop.reset = function () {
+    this.running = false
+    this.now = 0
+    this.before = 0
+    this.diff = 0
+    this.frame = 0
+    this.timeElapsed = 0
+    this.accumulator = 0
   }
-  return false
-}
 
-/**
- * Calculate alpha. In short, a float of the
- * loop position between this tick and the next.
- * 
- * @return {float} alpha value
- * @api private
- */
+  /**
+   * Starts loop.
+   *
+   * @api public
+   */
 
-loop.alpha = function () {
-  return this.accumulator / this.dt
+  loop.start = function () {
+    this.running = true
+    // subtracting diff recovers in case of pause
+    this.before = Date.now() - this.diff
+    this.tick()
+  }
+
+  /**
+   * Pauses loop.
+   *
+   * @api public
+   */
+
+  loop.pause = function () {
+    this.running = false
+    this.diff = Date.now() - this.before
+  }
+
+  /**
+   * Stops loop.
+   * 
+   * @api private
+   */
+
+  loop.stop = function () {
+    this.running = false
+    this.reset()
+  }
+
+  /**
+   * Ticks loop.
+   *
+   * @return {object} this
+   * @api private
+   */
+
+  loop.tick = function () {
+    function tick () {
+      if (this.running) raf(tick)
+
+      this.frame++
+
+      this.now = Date.now()
+      this.diff = this.now - this.before
+      this.before = this.now
+
+      if (this.diff > this.maxDiff) {
+        this.diff = 0
+      }
+      this.add(this.diff)
+
+      while (this.overflow()) {
+        this.emit('update', this.frame, this.timeElapsed)
+      }
+      this.emit('render', this.alpha())
+    }
+
+    tick = tick.bind(this)
+    tick()
+    
+    return this
+  }
+
+  /**
+   * Adds to loop accumulator and elapsed.
+   *
+   * @param {number} ms
+   * @return {object} this
+   * @api private
+   */
+
+  loop.add = function (ms) {
+    this.timeElapsed += ms
+    this.accumulator += ms
+    return this
+  }
+
+  /**
+   * Overflow loop.
+   * 
+   * @return {boolean} whether this is an underrun
+   * @api private
+   */
+
+  loop.overflow = function () {
+    if (this.accumulator >= this.dt) {
+      this.accumulator -= this.dt
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Calculate alpha. In short, a float of the
+   * loop position between this tick and the next.
+   * 
+   * @return {float} alpha value
+   * @api private
+   */
+
+  loop.alpha = function () {
+    return this.accumulator / this.dt
+  }
+
+  return loop
 }
 
 });
@@ -1699,31 +1880,67 @@ module.exports = function (parentEl) {
 });
 require.register("arkanoid/arkanoid.js", function(exports, require, module){
 
-/**
+/*!
  * arkanoid example using http://github.com/entity
  * 
  * MIT licenced
  */
 
+/**
+ * Module dependencies.
+ */
+
 var v = require('vector')
 var rect = require('rect')
-
 var manager = require('manager')
-var position = require('position')
-var motion = require('motion')
-var loop = require('loop')
-var Mouse = require('mouse')
-var Dom = require('dom')
+
+/**
+ * Main game object.
+ */
 
 var game = module.exports = {}
-var el = game.el = document.getElementById('game')
+game.el = document.getElementById('game')
 
-var dom = Dom(el)
-var input = Mouse(el)
+/**
+ * Load systems.
+ */
+
+var position = require('position')
+var motion = require('motion')
+var loop = require('loop')()
+var input = require('mouse')(game.el)
+var dom = require('dom')(game.el)
+
+/**
+ * Create a world manager.
+ */
 
 var world = game.world = manager()
 
-// shapes
+/**
+ * Bricks manager.
+ */
+
+var bricks = world.createManager()
+
+/**
+ * Balls manager.
+ */
+
+var balls = world.createManager()
+
+/**
+ * Borders rectangle.
+ */
+
+var borders = rect(
+  [0,0]
+, [game.el.clientWidth, game.el.clientHeight]
+)
+
+/**
+ * Shapes components.
+ */
 
 var box = {
   mesh: [rect, [0,0], [9,9]]
@@ -1734,39 +1951,43 @@ var circle = {
   radius: [v, 4.5]
 }
 
-var borders = rect(
-  [0,0]
-, [game.el.clientWidth, game.el.clientHeight]
-)
-
-// systems
-
-// collide
+/**
+ * Ball collision to brick system.
+ *
+ * @api system
+ */
 
 var collide = {
   update: function (ball) {
     var colls = []
-    blocks.each(function (block) {
-      if (block.removed) return
+    bricks.each(function (brick) {
+      if (brick.removed) return
 
       var a = v(ball.pos).minus(ball.offset)
-      var b = v(block.pos).minus(block.offset).plus(v(4.5, 2))
+      var b = v(brick.pos).minus(brick.offset).plus(v(4.5, 2))
       var dist = v(
         (a.x+ball.vel.x)-b.x
       , (a.y+ball.vel.y)-b.y
       ).abs()
-    
-      if (dist.y <= 8 && dist.x <= (bsize/2)+6) {
-        dist.block = block
+
+      // collides    
+      if (dist.y <= 8 && dist.x <= (brick.mesh.size.width/2)+6) {
+        dist.brick = brick
         colls.push(dist)
       }
     })
+
+    // do we have collisions?
     if (colls.length) {
+      // find the closer one
       var res = colls.reduce(function (p, n) {
         return n.min(p)
       }, v(100,100))
-      res.block.el.classList.add('hide')
-      res.block.removed = true
+      // hide the brick
+      res.brick.el.classList.add('hide')
+      res.brick.removed = true
+      // try to determine which way it was hit
+      // and switch directions accordingly
       if (res.y > res.x/2) {
         ball.dir.y = -ball.dir.y
         ball.vel.y = -ball.vel.y
@@ -1775,16 +1996,24 @@ var collide = {
         ball.dir.x = -ball.dir.x
         ball.vel.x = -ball.vel.x
       }
-      ball.pos.add(ball.vel)
+      // move ball away from collision
+//      ball.pos.add(ball.vel)
     }
   }
 }
 
-// bounce
+/**
+ * Ball bounce on borders and racket system.
+ *
+ * @api system
+ * @api component
+ */
 
 var bounce = {
   bounceGain: [v, 1.003]
 , update: function (e) {
+    
+    // bounce to borders
     var n = v(e.pos).plus(e.vel).minus(e.offset)
     if ( n.x+e.mesh.size.width > borders.size.x
       || n.x < borders.pos.x) {
@@ -1800,6 +2029,8 @@ var bounce = {
       e.speed.mul(e.bounceGain)
       e.dir.y = -e.dir.y
     }
+
+    // bounce to racket
     var r = v(racket.pos).minus(racket.offset)
     if (n.y+e.mesh.size.height > r.y && n.y < r.y+(racket.mesh.size.height/2)
       && n.x+e.mesh.size.width > r.x && n.x < r.x+racket.mesh.size.width
@@ -1809,10 +2040,15 @@ var bounce = {
       e.dir.x = (diff*0.05)*-1 + e.dir.x
     }
     e.vel.set(v(e.dir).mul(e.speed))
+  
   }
 }
 
-// keep in borders
+/**
+ * Keep position in borders.
+ *
+ * @api system
+ */
 
 var keepInBorders = {
   update: function (e) {
@@ -1826,7 +2062,14 @@ var keepInBorders = {
   }
 }
 
-// smoother
+/**
+ * Make motion smoother. Interpolates between
+ * the previous and this step based on the alpha
+ * position sent by the loop system in the render
+ * event.
+ *
+ * @system
+ */
 
 var smoother = {
   render: function (e, a) {
@@ -1834,7 +2077,12 @@ var smoother = {
   }
 }
 
-// follows target
+/**
+ * Make entity follow a target.
+ *
+ * @api system
+ * @api component
+ */
 
 var followTarget = {
   target: [v, v(borders.size).half()]
@@ -1845,7 +2093,11 @@ var followTarget = {
   }
 }
 
-// limit y velocity to 0
+/**
+ * Limit y velocity to 0.
+ *
+ * @api system
+ */
 
 var limitY = {
   update: function (e) {
@@ -1853,7 +2105,11 @@ var limitY = {
   }
 }
 
-// assigns control
+/**
+ * Pointer controls entity.
+ *
+ * @api system
+ */
 
 var control = {
   update: function (e) {
@@ -1861,13 +2117,13 @@ var control = {
   }
 }
 
-var blocks = world.createManager()
-var balls = world.createManager()
+/**
+ * Brick system.
+ *
+ * @api system
+ */
 
-var cx = 12
-var bsize = Math.floor((borders.size.width-3-(cx*3)) / cx)
-
-var block = {
+var brick = {
   init: function (e) {
     e.mesh.pos.set(e.pos)
     e.el.classList.remove('hide')
@@ -1875,19 +2131,34 @@ var block = {
   }
 }
 
-function Blocks (cx) {
-  for (var x=0; x<cx; x++) {
-    for (var y=0; y<5; y++) {
-      blocks.createEntity(box, dom, block, {
+/**
+ * Create bricks.
+ *
+ * @param {number} cols
+ * @param {number} rows
+ * @return {manager} bricks
+ */
+
+function Bricks (cols, rows) {
+  cols = cols || 12
+  rows = rows || 6
+  var bsize = Math.floor((borders.size.width-3-(cols*3)) / cols)
+  for (var x=0; x<cols; x++) {
+    for (var y=0; y<rows; y++) {
+      bricks.createEntity(box, dom, brick, {
         mesh: [rect, [0,0], [bsize,12]]
       , offset: [v, bsize/2,6]
       , pos: [v, 20+(x*(bsize+3)), 40+(14*y)]
-      , class: [String, 'block']
+      , class: [String, 'brick']
       })
     }
   }
-  return blocks
+  return bricks
 }
+
+/**
+ * Ball entity factory.
+ */
 
 function Ball () {
   return balls.createEntity(
@@ -1909,7 +2180,9 @@ function Ball () {
   )
 }
 
-// racket
+/**
+ * Racket entity factory.
+ */
 
 function Racket () {
   return world.createEntity(
@@ -1930,31 +2203,63 @@ function Racket () {
   )
 }
 
-// pointer
+/**
+ * Pointer entity.
+ */
+
 var pointer = world.createEntity(position, input, {
   pos: [v, v(borders.size).half()]
 })
 
-// container
+/**
+ * Container entity.
+ */
+
 var container = world.createEntity(dom, {
   class: 'container'
 , mesh: [rect, borders]
 })
 
+/**
+ * Create racket.
+ */
+
 var racket = Racket()
 
-Blocks(12)
+/**
+ * Create bricks.
+ */
 
-// setup some listeners
+Bricks(12, 6)
+
+/**
+ * Button controls.
+ */
+
+var get = document.getElementById.bind(document)
+get('start').onclick = world.start.bind(world)
+get('pause').onclick = world.pause.bind(world)
+get('stop').onclick = world.stop.bind(world)
+get('reset').onclick = world.reset.bind(world)
+get('add-ball').onclick = function () {
+  world.join(Ball())
+}
+
+/**
+ * Setup some listeners.
+ */
 
 world.on('init', function () {
   world.join(Ball())
 })
 
 world.on('tear', function () {
-  // remove all balls
   balls.removeAllEntities()
 })
+
+/**
+ * Use systems.
+ */
 
 world
   .use(loop)
@@ -1964,7 +2269,7 @@ world
   
   .use(position)
 
-  .use(block)
+  .use(brick)
   .use(followTarget)
   .use(limitY)
   .use(bounce)
@@ -1977,21 +2282,14 @@ world
   
   .use(dom)
 
+/**
+ * Start game.
+ */
+
+world
   .applyComponents()
   .init()
   .start()
-
-// buttons
-
-var get = document.getElementById.bind(document)
-
-get('start').onclick = world.start.bind(world)
-get('pause').onclick = world.pause.bind(world)
-get('stop').onclick = world.stop.bind(world)
-get('reset').onclick = world.reset.bind(world)
-get('add-ball').onclick = function () {
-  world.join(Ball())
-}
 
 });
 require.alias("entity-vector/index.js", "arkanoid/deps/vector/index.js");
