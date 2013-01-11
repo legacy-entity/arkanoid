@@ -1,0 +1,19 @@
+{
+  "name": "arkanoid",
+  "version": "0.0.1",
+  "main": "arkanoid.js",
+  "dependencies": {
+    "entity/vector": "*",
+    "entity/rect": "*",
+    "entity/manager": "*",
+    "entity/position": "*",
+    "entity/motion": "*",
+    "entity/loop": "*",
+    "entity/mouse": "*",
+    "entity/entity": "*",
+    "entity/uid": "*",
+    "entity/dom": "*"
+  },
+  "scripts": ["arkanoid.js"],
+  "styles": ["arkanoid.css"]
+}

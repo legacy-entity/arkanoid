@@ -1,0 +1,56 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #212121;
+}
+.container {
+  width: 360px;
+  margin: 0 auto;
+  padding: 0;
+  background: #222222;
+}
+#game {
+  position: relative;
+  width: 360px;
+  height: 256px;
+  margin: 20px auto 0;
+  cursor: none;
+  border: 1px solid #f50;
+}
+#game .container {
+  background: #232323;
+}
+#game .entity {
+  position: absolute;
+}
+#game .hide {
+  display: none;
+}
+#game .racket {
+  border-radius: 6px;
+  background: #80f;
+}
+#game .ball {
+  border-radius: 10px;
+  background: #8f0;
+}
+#game .block {
+  border-radius: 2px;
+  background: #aaa;
+}
+#buttons {
+  text-align: center;
+}
+#buttons button {
+  background: #f50;
+  color: black;
+  border: none;
+  font-size: 9px;
+}
+#buttons button:hover {
+  background: #fff;
+  color: black;
+  cursor: pointer;
+}
