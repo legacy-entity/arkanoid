@@ -349,7 +349,7 @@ var racket = Racket()
  * Create bricks.
  */
 
-Bricks(12, 6)
+Bricks(12, 5)
 
 /**
  * Button controls.
