@@ -1,29 +1,65 @@
 
-/**
+/*!
  * arkanoid example using http://github.com/entity
  * 
  * MIT licenced
  */
 
+/**
+ * Module dependencies.
+ */
+
 var v = require('vector')
 var rect = require('rect')
-
 var manager = require('manager')
-var position = require('position')
-var motion = require('motion')
-var loop = require('loop')
-var Mouse = require('mouse')
-var Dom = require('dom')
+
+/**
+ * Main game object.
+ */
 
 var game = module.exports = {}
-var el = game.el = document.getElementById('game')
+game.el = document.getElementById('game')
 
-var dom = Dom(el)
-var input = Mouse(el)
+/**
+ * Load systems.
+ */
+
+var position = require('position')
+var motion = require('motion')
+var loop = require('loop')()
+var input = require('mouse')(game.el)
+var dom = require('dom')(game.el)
+
+/**
+ * Create a world manager.
+ */
 
 var world = game.world = manager()
 
-// shapes
+/**
+ * Bricks manager.
+ */
+
+var bricks = world.createManager()
+
+/**
+ * Balls manager.
+ */
+
+var balls = world.createManager()
+
+/**
+ * Borders rectangle.
+ */
+
+var borders = rect(
+  [0,0]
+, [game.el.clientWidth, game.el.clientHeight]
+)
+
+/**
+ * Shapes components.
+ */
 
 var box = {
   mesh: [rect, [0,0], [9,9]]
@@ -34,39 +70,43 @@ var circle = {
   radius: [v, 4.5]
 }
 
-var borders = rect(
-  [0,0]
-, [game.el.clientWidth, game.el.clientHeight]
-)
-
-// systems
-
-// collide
+/**
+ * Ball collision to brick system.
+ *
+ * @api system
+ */
 
 var collide = {
   update: function (ball) {
     var colls = []
-    blocks.each(function (block) {
-      if (block.removed) return
+    bricks.each(function (brick) {
+      if (brick.removed) return
 
       var a = v(ball.pos).minus(ball.offset)
-      var b = v(block.pos).minus(block.offset).plus(v(4.5, 2))
+      var b = v(brick.pos).minus(brick.offset).plus(v(4.5, 2))
       var dist = v(
         (a.x+ball.vel.x)-b.x
       , (a.y+ball.vel.y)-b.y
       ).abs()
-    
-      if (dist.y <= 8 && dist.x <= (bsize/2)+6) {
-        dist.block = block
+
+      // collides    
+      if (dist.y <= 8 && dist.x <= (brick.mesh.size.width/2)+6) {
+        dist.brick = brick
         colls.push(dist)
       }
     })
+
+    // do we have collisions?
     if (colls.length) {
+      // find the closer one
       var res = colls.reduce(function (p, n) {
         return n.min(p)
       }, v(100,100))
-      res.block.el.classList.add('hide')
-      res.block.removed = true
+      // hide the brick
+      res.brick.el.classList.add('hide')
+      res.brick.removed = true
+      // try to determine which way it was hit
+      // and switch directions accordingly
       if (res.y > res.x/2) {
         ball.dir.y = -ball.dir.y
         ball.vel.y = -ball.vel.y
@@ -75,16 +115,24 @@ var collide = {
         ball.dir.x = -ball.dir.x
         ball.vel.x = -ball.vel.x
       }
-      ball.pos.add(ball.vel)
+      // move ball away from collision
+//      ball.pos.add(ball.vel)
     }
   }
 }
 
-// bounce
+/**
+ * Ball bounce on borders and racket system.
+ *
+ * @api system
+ * @api component
+ */
 
 var bounce = {
   bounceGain: [v, 1.003]
 , update: function (e) {
+    
+    // bounce to borders
     var n = v(e.pos).plus(e.vel).minus(e.offset)
     if ( n.x+e.mesh.size.width > borders.size.x
       || n.x < borders.pos.x) {
@@ -100,6 +148,8 @@ var bounce = {
       e.speed.mul(e.bounceGain)
       e.dir.y = -e.dir.y
     }
+
+    // bounce to racket
     var r = v(racket.pos).minus(racket.offset)
     if (n.y+e.mesh.size.height > r.y && n.y < r.y+(racket.mesh.size.height/2)
       && n.x+e.mesh.size.width > r.x && n.x < r.x+racket.mesh.size.width
@@ -109,10 +159,15 @@ var bounce = {
       e.dir.x = (diff*0.05)*-1 + e.dir.x
     }
     e.vel.set(v(e.dir).mul(e.speed))
+  
   }
 }
 
-// keep in borders
+/**
+ * Keep position in borders.
+ *
+ * @api system
+ */
 
 var keepInBorders = {
   update: function (e) {
@@ -126,7 +181,14 @@ var keepInBorders = {
   }
 }
 
-// smoother
+/**
+ * Make motion smoother. Interpolates between
+ * the previous and this step based on the alpha
+ * position sent by the loop system in the render
+ * event.
+ *
+ * @system
+ */
 
 var smoother = {
   render: function (e, a) {
@@ -134,7 +196,12 @@ var smoother = {
   }
 }
 
-// follows target
+/**
+ * Make entity follow a target.
+ *
+ * @api system
+ * @api component
+ */
 
 var followTarget = {
   target: [v, v(borders.size).half()]
@@ -145,7 +212,11 @@ var followTarget = {
   }
 }
 
-// limit y velocity to 0
+/**
+ * Limit y velocity to 0.
+ *
+ * @api system
+ */
 
 var limitY = {
   update: function (e) {
@@ -153,7 +224,11 @@ var limitY = {
   }
 }
 
-// assigns control
+/**
+ * Pointer controls entity.
+ *
+ * @api system
+ */
 
 var control = {
   update: function (e) {
@@ -161,13 +236,13 @@ var control = {
   }
 }
 
-var blocks = world.createManager()
-var balls = world.createManager()
+/**
+ * Brick system.
+ *
+ * @api system
+ */
 
-var cx = 12
-var bsize = Math.floor((borders.size.width-3-(cx*3)) / cx)
-
-var block = {
+var brick = {
   init: function (e) {
     e.mesh.pos.set(e.pos)
     e.el.classList.remove('hide')
@@ -175,19 +250,34 @@ var block = {
   }
 }
 
-function Blocks (cx) {
-  for (var x=0; x<cx; x++) {
-    for (var y=0; y<5; y++) {
-      blocks.createEntity(box, dom, block, {
+/**
+ * Create bricks.
+ *
+ * @param {number} cols
+ * @param {number} rows
+ * @return {manager} bricks
+ */
+
+function Bricks (cols, rows) {
+  cols = cols || 12
+  rows = rows || 6
+  var bsize = Math.floor((borders.size.width-3-(cols*3)) / cols)
+  for (var x=0; x<cols; x++) {
+    for (var y=0; y<rows; y++) {
+      bricks.createEntity(box, dom, brick, {
         mesh: [rect, [0,0], [bsize,12]]
       , offset: [v, bsize/2,6]
       , pos: [v, 20+(x*(bsize+3)), 40+(14*y)]
-      , class: [String, 'block']
+      , class: [String, 'brick']
       })
     }
   }
-  return blocks
+  return bricks
 }
+
+/**
+ * Ball entity factory.
+ */
 
 function Ball () {
   return balls.createEntity(
@@ -209,7 +299,9 @@ function Ball () {
   )
 }
 
-// racket
+/**
+ * Racket entity factory.
+ */
 
 function Racket () {
   return world.createEntity(
@@ -230,31 +322,63 @@ function Racket () {
   )
 }
 
-// pointer
+/**
+ * Pointer entity.
+ */
+
 var pointer = world.createEntity(position, input, {
   pos: [v, v(borders.size).half()]
 })
 
-// container
+/**
+ * Container entity.
+ */
+
 var container = world.createEntity(dom, {
   class: 'container'
 , mesh: [rect, borders]
 })
 
+/**
+ * Create racket.
+ */
+
 var racket = Racket()
 
-Blocks(12)
+/**
+ * Create bricks.
+ */
 
-// setup some listeners
+Bricks(12, 6)
+
+/**
+ * Button controls.
+ */
+
+var get = document.getElementById.bind(document)
+get('start').onclick = world.start.bind(world)
+get('pause').onclick = world.pause.bind(world)
+get('stop').onclick = world.stop.bind(world)
+get('reset').onclick = world.reset.bind(world)
+get('add-ball').onclick = function () {
+  world.join(Ball())
+}
+
+/**
+ * Setup some listeners.
+ */
 
 world.on('init', function () {
   world.join(Ball())
 })
 
 world.on('tear', function () {
-  // remove all balls
   balls.removeAllEntities()
 })
+
+/**
+ * Use systems.
+ */
 
 world
   .use(loop)
@@ -264,7 +388,7 @@ world
   
   .use(position)
 
-  .use(block)
+  .use(brick)
   .use(followTarget)
   .use(limitY)
   .use(bounce)
@@ -277,18 +401,11 @@ world
   
   .use(dom)
 
+/**
+ * Start game.
+ */
+
+world
   .applyComponents()
   .init()
   .start()
-
-// buttons
-
-var get = document.getElementById.bind(document)
-
-get('start').onclick = world.start.bind(world)
-get('pause').onclick = world.pause.bind(world)
-get('stop').onclick = world.stop.bind(world)
-get('reset').onclick = world.reset.bind(world)
-get('add-ball').onclick = function () {
-  world.join(Ball())
-}

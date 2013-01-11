@@ -36,7 +36,7 @@ html, body {
   border-radius: 10px;
   background: #8f0;
 }
-#game .block {
+#game .brick {
   border-radius: 2px;
   background: #aaa;
 }
