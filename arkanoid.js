@@ -44,13 +44,13 @@ var world = game.world = manager()
  * Bricks manager.
  */
 
-var bricks = world.createManager()
+var bricks = game.bricks = world.createManager()
 
 /**
  * Balls manager.
  */
 
-var balls = world.createManager()
+var balls = game.balls = world.createManager()
 
 /**
  * Borders rectangle.
