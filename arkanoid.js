@@ -78,7 +78,7 @@ var box = {
 }
 
 var circle = {
-  radius: [v, 4.5]
+  radius: [Number, 4.5]
 }
 
 /**
