@@ -69,6 +69,7 @@ require.aliases = {};
  */
 
 require.resolve = function(path) {
+  if (path.charAt(0) === '/') path = path.slice(1);
   var index = path + '/index.js';
 
   var paths = [
@@ -181,17 +182,18 @@ require.relative = function(parent) {
    */
 
   localRequire.resolve = function(path) {
+    var c = path.charAt(0);
+    if ('/' == c) return path.slice(1);
+    if ('.' == c) return require.normalize(p, path);
+
     // resolve deps by returning
     // the dep in the nearest "deps"
     // directory
-    if ('.' != path.charAt(0)) {
-      var segs = parent.split('/');
-      var i = lastIndexOf(segs, 'deps') + 1;
-      if (!i) i = 0;
-      path = segs.slice(0, i + 1).join('/') + '/deps/' + path;
-      return path;
-    }
-    return require.normalize(p, path);
+    var segs = parent.split('/');
+    var i = lastIndexOf(segs, 'deps') + 1;
+    if (!i) i = 0;
+    path = segs.slice(0, i + 1).join('/') + '/deps/' + path;
+    return path;
   };
 
   /**
@@ -402,6 +404,22 @@ Vector.prototype.lerp = function (b, f) {
 }
 
 /**
+ * v.limit(rectangle)
+ */
+
+Vector.prototype.limit = function (r) {
+  if (r instanceof Vector) {
+    this.max(r[1])
+    this.min(r[2])
+  }
+  else {
+    this.max(r.pos)
+    this.min(r.size)
+  }
+  return this
+}
+
+/**
  * v.each(fn)
  */
 
@@ -432,17 +450,6 @@ Vector.prototype.absolute = function () {
   return this.map(Math.abs)
 }
 
-
-/**
- * v.limit(-5, 5) // 8 => 5, -15 => -5
- */
-
-Vector.prototype.limit = function (r) {
-  this.max(r.pos)
-  this.min(r.size)
-  return this
-}
-
 /**
  * v.neg() // 5 => -5
  */
@@ -461,6 +468,8 @@ Vector.prototype.ceil = function () { return this.map(Math.ceil) }
 
 Vector.prototype.pow = function (n) { return this.map(Math.pow.bind(this, n)) }
 Vector.prototype.sqrt = function () { return this.map(Math.sqrt) }
+
+Vector.prototype.atan2 = function () { return Math.atan2(this.y, this.x) }
 
 /**
  * Return the modulus of this vector.
@@ -510,7 +519,8 @@ V.min = function (v) {
 
 V.dot = function (vec) {
   var product = 0
-  while (n--) {
+  var n = this.length + 1
+  while (--n) {
     product += this[n] * vec[n]
   }
   return product
@@ -561,7 +571,7 @@ V.rand = function (vec) {
 }
 
 V.add = V.plus = function (v) { return this.map(function (n,i) { return n+v[i] }) }
-V.sub = V.minus = function (v) { return this.map(function (n,i) { return n-v[i] }) }
+V.sub = V.minus = V.subtract = function (v) { return this.map(function (n,i) { return n-v[i] }) }
 
 V.mul = V.times = V.x = function (v) { return this.map(function (n,i) { return n*v[i] }) }
 V.div = V.divide = function (v) { return this.map(function (n,i) { return n/v[i] }) }
@@ -672,735 +682,6 @@ Rect.prototype.set = function (r) {
   this.pos = r.pos
   this.size = r.size
   return this
-}
-
-});
-require.register("entity-manager/index.js", function(exports, require, module){
-
-var slice = [].slice
-
-/**
- * Module dependencies.
- */
-
-var Entity = require('entity')
-
-/**
- * Manager factory.
- */
-
-module.exports = function (parent) {
-  return new Manager(parent)
-}
-
-/**
- * Manager class.
- */
-
-function Manager (parent) {
-  this.parent = parent
-  this.root = this.parent || this
-  this.children = []
-
-  this.systems = []
-  this.entities = []
-  this.components = {}
-  this.componentsIndex = []
-
-  this.listeners = {}
-
-  this.state('ready')
-}
-
-var proto = Manager.prototype
-
-/**
- * Listen on events.
- *
- * @param {string} ev 
- * @param {fn} fn 
- * @return {object} this
- * @api public
- */
-
-proto.on = function (ev, fn) {
-  this.listeners[ev] = this.listeners[ev] || []
-  this.listeners[ev].push(fn)
-  return this
-}
-
-/**
- * Emit events.
- *
- * @param {string} ev 
- * @param {mixed} arguments
- * @return {object} this
- * @api public
- */
-
-proto.emit = function (ev, a, b, c, d) {
-  if (!(ev in this.listeners)) return
-  for (var i=0, len=this.listeners[ev].length; i<len; i++) {
-    this.listeners[ev][i].call(this, a, b, c, d)
-  }
-  return this
-}
-
-/**
- * Determine whether this is the root manager.
- *
- * @return {boolean}
- * @api public
- */
-
-proto.isRoot = function () {
-  return this.parent === this
-}
-
-/**
- * Attach listeners for the methods of an object.
- *
- * @param {object} obj
- * @return {object} this
- * @api private
- */
-
-proto.addListeners = function (obj) {
-  Object.keys(obj)
-    .filter(function (k) { return '_' != k.substr(0,1) })
-    .forEach(function (k) {
-      if ('function' == typeof obj[k]) {
-        this.on(k, function () {
-          var args = slice.call(arguments)
-
-          if (!obj[k].length) {
-            return obj[k].call(obj)
-          }
-
-          this.each(obj, function (e) {
-            obj[k].apply(obj, [e].concat(args))
-          })
-        })
-      }
-    }, this)
-  return this
-}
-
-/**
- * Apply component data to an entity or all.
- *
- * @param {entity} [e]
- * @api public
- */
-
-proto.applyComponents = function (e) {
-  if (e) {
-    e.components.forEach(function (c) {
-      e.applyComponent(c)
-    })
-    return this
-  }
-  else {
-    this.each(this.applyComponents.bind(this))
-  }
-  return this
-}
-
-/**
- * Generate a string serialized snapshot of our entities.
- *
- * @return {string}
- * @api public
- */
-
-proto.snapshot = function () {
-  return JSON.stringify(this.entities)
-}
-
-/**
- * Main event handlers.
- *
- * @api public
- */
-
-proto.init = function () { return this.state('init') }
-proto.start = function () { return this.state('start') }
-proto.pause = function () { return this.state('pause') }
-proto.stop = function () { return this.state('stop') }
-proto.tear = function () { return this.state('tear') }
-proto.reset = function () {
-  this.stop()
-  this.tear()
-  setTimeout(function () {
-    this.init()
-    this.start()
-  }.bind(this), 0)
-  return this
-}
-
-/**
- * State accessor. Also emits state on change.
- *
- * @param {string} [s]
- * @return {string} s
- * @api private
- */
-
-proto.state = function (s) {
-  if (null == s) return this._state
-  this._state = s
-  this.emit(s)
-  return this
-}
-
-/**
- * Get all entities using all the components in the array.
- *
- * @param {array} arr
- * @return {array} entities
- * @api public
- */
-
-proto.of = function (arr) {
-  var res = []
-  var ents = []
-  for (var i=0, c, len=arr.length; i<len; i++) {
-    c = arr[i]
-    if ('string' == typeof c) {
-      ents.push(this.entities.filter(function (e) {
-        return (c in e)
-      }))
-    }
-    else {
-      c = c.component || c
-      var index = this.componentsIndex
-      var idx = index.indexOf(c)
-      if (~idx) ents.push(this.components[idx] || [])
-    }
-  }
-  var exclude
-  if (!ents.length) return res
-  for (var i=0, e, len=ents[0].length; i<len; i++) {
-    e = ents[0][i]
-    exclude = false
-    ents.forEach(function (list) {
-      if (!~list.indexOf(e)) exclude = true
-    })
-    if (!exclude) res.push(e)
-  }
-  return res
-}
-
-/**
- * Iterate entities of certain components,
- * or through all if no component is passed.
- *
- * @param {component} c
- * ...
- * @param {fn} fn
- * @return {object} this
- * @api public
- */
-
-proto.each = function (c, fn) {
-  var args
-  if ('function' == typeof c) {
-    this.entities.forEach(c, this)
-    return this
-  }
-  else if (Array.isArray(c)) {
-    args = c
-  }
-  else {
-    args = slice.call(arguments)
-  }
-  fn = args.pop()
-  this.of(args).forEach(fn)
-  return this
-}
-
-/**
- * Get the first entity matching component.
- *
- * @param {component} c 
- * @return {entity}
- * @api public
- */
-
-proto.get = function (c) {
-  return this.of(c)[0]
-}
-
-/**
- * Use an entity, system or manager.
- * 
- * Registers an entity (creating a new one or reusing
- * the one passed).
- * 
- * Registers a system to be used. Order added matters.
- *
- * Adds a manager to our children.
- *
- * @param {manager|system|entity} item
- * @param {boolean} reuse
- * @return {object} this
- * @api public
- */
-
-proto.use = function (item, reuse) {
-  if (item instanceof Entity) {
-    var e = item
-    if (!reuse) e = new Entity(item)
-    if (!~this.entities.indexOf(e)) {
-      var self = this
-      e.on('use', function (c) {
-        self.reg(c, e)
-      })
-      this.entities.push(e)
-      this.registerComponents(e)
-      if (this.root != this) {
-        if (!~this.root.entities.indexOf(e)) {
-          this.root.entities.push(e)
-          this.root.registerComponents(e)
-        }
-      }
-    }
-  }
-  else if ('object' == typeof item) {
-    item = item.system || item
-    this.addListeners(item)
-    if (!('children' in item)) {
-      item.emit = this.emit.bind(this)
-      item.each = this.each.bind(this)
-      item.of = this.of.bind(this)
-      this.systems.push(item)
-    }
-    else {
-      item.root = this.root
-      this.children.push(item)
-    }
-  }
-  else console.error('unknown', item)
-  return this
-}
-
-/**
- * Register the components of an entity.
- *
- * @param {entity} e 
- * @return {object} this
- * @api private
- */
-
-proto.registerComponents = function (e) {
-  var self = this
-  e.components.forEach(function (c) {
-    self.reg(c, e)
-  })
-  return this
-}
-
-/**
- * Register a component for an entity.
- *
- * @param {component} c 
- * @param {entity} e 
- * @return {object} this
- * @api private
- */
-
-proto.reg = function (c, e) {
-  var comps = this.components
-  var index = this.componentsIndex
-  var idx = index.indexOf(c)
-  if (~idx) {
-    if (!~comps[idx].indexOf(e)) {
-      comps[idx].push(e)
-    }
-  }
-  else {
-    index.push(c)
-    comps[index.length-1] = [e]
-  }
-  return this
-}
-
-/**
- * Join (late) an entity.
- * It will try to apply components and systems
- * based on the current state.
- *
- * @param {entity} e 
- * @return {object} this
- * @api public
- */
-
-proto.join = function (e) {
-  this.applyComponents(e)
-  var s = this.state()
-  if ('none' == s) return this
-  if ('init' == s || 'start' == s || 'pause' == s || 'stop' == s) {
-    e.init(this.systems)
-  }
-  if ('start' == s || 'pause' == s) {
-    e.start(this.systems)
-  }
-  if ('pause' == s) {
-    e.pause(this.systems)
-  }
-  return this
-}
-
-/**
- * Create an entity of components, and use it.
- *
- * @param {component} c, [c, [...]]
- * @return {entity} entity
- * @api public
- */
-
-proto.createEntity = function () {
-  var args = slice.call(arguments)
-  var e = args[0]
-  if (!(e instanceof Entity)) {
-    e = new Entity()
-    args.forEach(function (arg) {
-      e.use(arg)
-    })
-  }
-  this.use(e, true)
-  return e
-}
-
-/**
- * Remove all entities.
- *
- * @return {object} this
- * @api public
- */
-
-proto.removeAllEntities = function () {
-  this.entities.slice().forEach(function (e) {
-    this.root.removeEntity(e)
-    this.removeEntity(e)
-  }, this)
-  return this
-}
-
-/**
- * Remove an entity.
- *
- * @param {entity} e
- * @return {object) this
- * @api public
- */
-
-proto.removeEntity = function (e) {
-  var self = this
-  
-  var idx = this.entities.indexOf(e)
-  if (~idx) this.entities.splice(idx, 1)
-  
-  e.components.forEach(function (c) {
-    var idx = self.componentsIndex.indexOf(c)
-    var comps = self.components[idx]
-    if (null != comps) {
-      var idx = comps.indexOf(e)
-      if (~idx) comps.splice(idx, 1)
-    }
-  })
-
-  return this
-}
-
-/**
- * Create a manager and use it.
- *
- * @return {manager}
- * @api public
- */
-
-proto.createManager = function () {
-  var manager = new Manager(this)
-  this.use(manager)
-  return manager
-}
-
-/**
- * Mixin helper.
- *
- * @param {object} target
- * @param {object} source
- * @param {boolean} force
- */
-
-function mixin (t, s, f) {
-  for (var k in s) {
-    if (f || !(k in t)) t[k] = s[k]
-  }
-}
-
-});
-require.register("entity-position/index.js", function(exports, require, module){
-
-var v = require('vector')
-
-// position
-
-var pos = module.exports = {}
-
-pos.pos = [v, 0,0]
-pos.prevPos = [v, 0,0]
-pos.offset = [v, 0,0]
-
-pos.update = function (e) {
-  e.prevPos.set(e.pos)
-}
-
-});
-require.register("entity-motion/index.js", function(exports, require, module){
-
-var v = require('vector')
-
-// motion
-
-var motion = module.exports = {}
-
-motion.vel = [v, 0,0]
-
-motion.update = function (e) {
-  e.pos.add(e.vel)
-  e.vel.mul(0.25)
-}
-
-});
-require.register("component-raf/index.js", function(exports, require, module){
-
-module.exports = window.requestAnimationFrame
-  || window.webkitRequestAnimationFrame
-  || window.mozRequestAnimationFrame
-  || window.oRequestAnimationFrame
-  || window.msRequestAnimationFrame
-  || fallback;
-
-var prev = new Date().getTime();
-function fallback(fn) {
-  var curr = new Date().getTime();
-  var ms = Math.max(0, 16 - (curr - prev));
-  setTimeout(fn, ms);
-  prev = curr;
-}
-
-});
-require.register("entity-loop/index.js", function(exports, require, module){
-
-/**
- * Module dependencies.
- */
-
-var raf = require('raf')
-
-/**
- * Returns a loop system using dt (delta time).
- *
- * @param {float} dt 
- * @return {system} loop
- * @api public
- */
-
-module.exports = function (dt) {
-
-  /**
-   * Loop system.
-   */
-
-  var loop = {}
-
-  /**
-   * Init loop.
-   *
-   * @api public
-   */
-
-  loop.init = function () {
-    this.dt = dt || 1000/60
-    this.maxDiff = this.dt * 5
-    this.reset()
-  }
-
-  /**
-   * Resets loop.
-   *
-   * @api private
-   */
-
-  loop.reset = function () {
-    this.running = false
-    this.now = 0
-    this.before = 0
-    this.diff = 0
-    this.frame = 0
-    this.timeElapsed = 0
-    this.accumulator = 0
-  }
-
-  /**
-   * Starts loop.
-   *
-   * @api public
-   */
-
-  loop.start = function () {
-    this.running = true
-    // subtracting diff recovers in case of pause
-    this.before = Date.now() - this.diff
-    this.tick()
-  }
-
-  /**
-   * Pauses loop.
-   *
-   * @api public
-   */
-
-  loop.pause = function () {
-    this.running = false
-    this.diff = Date.now() - this.before
-  }
-
-  /**
-   * Stops loop.
-   * 
-   * @api private
-   */
-
-  loop.stop = function () {
-    this.running = false
-    this.reset()
-  }
-
-  /**
-   * Ticks loop.
-   *
-   * @return {object} this
-   * @api private
-   */
-
-  loop.tick = function () {
-    function tick () {
-      if (this.running) raf(tick)
-
-      this.frame++
-
-      this.now = Date.now()
-      this.diff = this.now - this.before
-      this.before = this.now
-
-      if (this.diff > this.maxDiff) {
-        this.diff = 0
-      }
-      this.add(this.diff)
-
-      while (this.overflow()) {
-        this.emit('update', this.frame, this.timeElapsed)
-      }
-      this.emit('render', this.alpha())
-    }
-
-    tick = tick.bind(this)
-    tick()
-    
-    return this
-  }
-
-  /**
-   * Adds to loop accumulator and elapsed.
-   *
-   * @param {number} ms
-   * @return {object} this
-   * @api private
-   */
-
-  loop.add = function (ms) {
-    this.timeElapsed += ms
-    this.accumulator += ms
-    return this
-  }
-
-  /**
-   * Overflow loop.
-   * 
-   * @return {boolean} whether this is an underrun
-   * @api private
-   */
-
-  loop.overflow = function () {
-    if (this.accumulator >= this.dt) {
-      this.accumulator -= this.dt
-      return true
-    }
-    return false
-  }
-
-  /**
-   * Calculate alpha. In short, a float of the
-   * loop position between this tick and the next.
-   * 
-   * @return {float} alpha value
-   * @api private
-   */
-
-  loop.alpha = function () {
-    return this.accumulator / this.dt
-  }
-
-  return loop
-}
-
-});
-require.register("entity-mouse/index.js", function(exports, require, module){
-
-var v = require('vector')
-
-// mouse
-
-module.exports = function (el) {
-  el = el || document.body
-
-  var mouse = {}
-
-  mouse.pos = [v, 0,0]
-  mouse.offset = [v, 0,0]
-
-  mouse.init = function (e) {
-    this.reset(e)
-  }
-
-  mouse.start = function (e) {
-    e.resizeListener = this.reset.bind(this, e)
-    window.addEventListener('resize', e.resizeListener, true)
-
-    e.moveListener = createListener(e)
-    el.addEventListener('mousemove', e.moveListener, true)
-  }
-
-  mouse.reset = function (e) {
-    e.offset = v(el.offsetLeft, el.offsetTop)
-  }
-
-  mouse.pause =
-  mouse.stop = function (e) {
-    el.removeEventListener('mousemove', e.moveListener, true)
-    window.removeEventListener('resize', e.resizeListener, true)
-  }
-
-  function createListener (e) {
-    return function (ev) {
-      e.pos.set([ev.clientX, ev.clientY]).sub(e.offset)
-    }
-  }
-
-  return mouse
 }
 
 });
@@ -1557,6 +838,8 @@ Emitter.prototype.hasListeners = function(event){
 });
 require.register("entity-entity/index.js", function(exports, require, module){
 
+var slice = [].slice
+
 /**
  * Module dependencies.
  */
@@ -1573,33 +856,23 @@ module.exports = Entity
 /**
  * Entity class.
  *
- * Entity instances serve as dictionaries of Components.
- * They do not keep data or state and are used only to
- * pass references of Entity constructors.
- * 
- * They can be passed to other Entities to copy their
- * component descriptors (mixin) or to be used by Systems.
- * When used by Systems, they only pass their reference
- * to serve as a dictionary or description of an entity.
- * 
- * The actual entity and data are instantiated inside the
- * parent System and can be used by it or its children
- * Systems (the entity's private instance System siblings).
- *
- * System isolation of data is necessary to keep state
- * untouchable by foreign Systems or individual actions,
- * and to make discovery of entities and (de)serialization
- * of state efficient and reliable.
- *
  * @param {String} [id]
  * @param {Array} [components]
  * @api public
  */
 
-function Entity (components, id) {
-  if (!(this instanceof Entity)) return new Entity(components, id)
-  this.id = id || uid()
-  this.components = components && components.components || components || []
+function Entity () {
+  var args = slice.call(arguments)
+  if (!(this instanceof Entity)) {
+    return new Entity(args)
+  }
+  this.id = uid()
+  this.defaults = {}
+  this.components = []
+
+  args.forEach(function (arg) {
+    this.use(arg)
+  }, this)
 }
 
 Emitter(Entity.prototype)
@@ -1614,18 +887,22 @@ Emitter(Entity.prototype)
  */
 
 Entity.prototype.use = function (c) {
-  c = c.component || (c.component = c || {})
+  if (null == c) return
 
-  if (c instanceof Entity) {
+  var oc = c
+
+  if (c instanceof Entity || c.components) {
     var e = c
     for (var i = 0; i < e.components.length; i++) {
       c = e.components[i]
-      this.add(c)
+      this.use(c)
     }
-    return this
+  }
+  else if (Array.isArray(c)) {
+    c.forEach(this.use, this)
   }
 
-  this.add(c)
+  this.add(oc)
 
   return this
 }
@@ -1639,10 +916,13 @@ Entity.prototype.use = function (c) {
 
 Entity.prototype.add = function (c) {
   if (this.has(c)) {
-    throw new Error(this.id+': already has component "'+c.id)
+    console.dir(c)
+    console.error(this.id + ' already has component', c)
+    return
+//    throw new Error(this.id+': already has component "'+c)
   }
   this.components.push(c)
-  this.emit('use', c)
+  this.emit('add', c)
 }
 
 /**
@@ -1667,51 +947,25 @@ Entity.prototype.has = function (c) {
 Entity.prototype.applyComponent = function (c) {
   var e = this
   for (var p in c) {
+    if ('components' == p) continue
     var val = c[p]
     if (Array.isArray(val)) {
-      //if ('function' == typeof val[0]) {
-        e[p] = val[0].apply(val, val.slice(1))
-      //}
-      //else {
-      //  e[p] = val.slice()
-      //}
+      e.defaults[p] = val
+      e[p] = e.getDefault(p)
+    }
+    else if ('function' == typeof val) {
+      e[p] = val
     }
   }
   return this
 }
 
-Entity.prototype.init = function (systems) {
-  return this.runSystems('init', systems)
+Entity.prototype.getDefault = function (p) {
+  var c = this.defaults[p]
+  var fn = c[0]
+  var args = c.slice(1)
+  return fn.apply(c, args)
 }
-
-Entity.prototype.start = function (systems) {
-  return this.runSystems('start', systems)
-}
-
-Entity.prototype.pause = function (systems) {
-  return this.runSystems('pause', systems)
-}
-
-Entity.prototype.stop = function (systems) {
-  return this.runSystems('stop', systems)
-}
-
-Entity.prototype.tear = function (systems) {
-  return this.runSystems('tear', systems)
-}
-
-Entity.prototype.runSystems = function (method, systems) {
-  var self = this
-  systems.forEach(function (system) {
-    system.each(system, function (e) {
-      if (e === self) {
-        if (system[method]) system[method].call(system, e)
-      }
-    })
-  })
-  return this
-}
-
 
 /**
  * Merge two objects.
@@ -1730,94 +984,755 @@ function merge (t, s) {
 }
 
 });
+require.register("entity-manager/index.js", function(exports, require, module){
+
+var slice = [].slice
+
+/**
+ * Module dependencies.
+ */
+
+var Entity = require('entity')
+
+/**
+ * Manager factory.
+ */
+
+module.exports = Manager
+
+/**
+ * Manager class.
+ */
+
+function Manager (parent) {
+  if (!(this instanceof Manager)) return new Manager(parent)
+
+  this.parent = parent || this
+  this.root = this.parent.root || this
+  this.children = []
+
+  this.systems = []
+  this.entities = []
+  this.components = {}
+  this.componentsIndex = []
+
+  this.listeners = {}
+
+  this.state('ready')
+}
+
+var proto = Manager.prototype
+
+/**
+ * Listen on events.
+ *
+ * @param {string} ev 
+ * @param {fn} fn 
+ * @return {object} this
+ * @api public
+ */
+
+proto.on = function (ev, fn) {
+  this.listeners[ev] = this.listeners[ev] || []
+  this.listeners[ev].push(fn)
+  return this
+}
+
+/**
+ * Emit events.
+ *
+ * @param {string} ev 
+ * @param {mixed} arguments
+ * @return {object} this
+ * @api public
+ */
+
+proto.emit = function (ev, a, b, c, d) {
+  if (!(ev in this.listeners)) return
+  for (var i=0, len=this.listeners[ev].length; i<len; i++) {
+    this.listeners[ev][i].call(this, a, b, c, d)
+  }
+  return this
+}
+
+/**
+ * Determine whether this is the root manager.
+ *
+ * @return {boolean}
+ * @api public
+ */
+
+proto.isRoot = function () {
+  return this.parent === this
+}
+
+/**
+ * Attach listeners for the methods of an object.
+ *
+ * @param {object} obj
+ * @return {object} this
+ * @api private
+ */
+
+proto.addListeners = function (obj) {
+  Object.keys(obj)
+    .filter(function (k) { return '_' != k.substr(0,1) })
+    .forEach(function (k) {
+      if ('function' == typeof obj[k]) {
+        this.on(k, function () {
+          var args = slice.call(arguments)
+
+          if (!obj[k].length) {
+            return obj[k].call(obj)
+          }
+
+          this.each(obj, function (e) {
+            obj[k].apply(obj, [e].concat(args))
+          })
+        })
+      }
+    }, this)
+  return this
+}
+
+/**
+ * Apply component data to an entity or all.
+ *
+ * @param {entity} [e]
+ * @api public
+ */
+
+proto.applyComponents = function (e) {
+  if (e) {
+    e.components.forEach(function (c) {
+      e.applyComponent(c)
+    })
+    return this
+  }
+  else {
+    this.each(this.applyComponents.bind(this))
+  }
+  return this
+}
+
+/**
+ * Generate a string serialized snapshot of our entities.
+ *
+ * @return {string}
+ * @api public
+ */
+
+proto.snapshot = function () {
+  return JSON.stringify(this.entities)
+}
+
+/**
+ * Main event handlers.
+ *
+ * @api public
+ */
+
+proto.init = function () { return this.state('init') }
+proto.start = function () { return this.state('start') }
+proto.pause = function () { return this.state('pause') }
+proto.stop = function () { return this.state('stop') }
+proto.tear = function () { return this.state('tear') }
+proto.reset = function () {
+  this.stop()
+  this.tear()
+  setTimeout(function () {
+    this.init()
+    this.start()
+  }.bind(this), 0)
+  return this
+}
+
+/**
+ * State accessor. Also emits state on change.
+ *
+ * @param {string} [s]
+ * @return {string} s
+ * @api private
+ */
+
+proto.state = function (s) {
+  if (null == s) return this._state
+  this._state = s
+  this.emit(s)
+  this.emit('state', s)
+  return this
+}
+
+/**
+ * Get all entities using all the components in the array.
+ *
+ * @param {array} arr
+ * @return {array} entities
+ * @api public
+ */
+
+proto.of = function (arr) {
+  var res = []
+  var ents = []
+  for (var i=0, c, len=arr.length; i<len; i++) {
+    c = arr[i]
+    if ('string' == typeof c) {
+      ents.push(this.entities.filter(function (e) {
+        return (c in e)
+      }))
+    }
+    else {
+      c = c.component || c
+      var index = this.componentsIndex
+      var idx = index.indexOf(c)
+      if (~idx) ents.push(this.components[idx] || [])
+    }
+  }
+  var exclude
+  if (!ents.length) return res
+  for (var i=0, e, len=ents[0].length; i<len; i++) {
+    e = ents[0][i]
+    exclude = false
+    ents.forEach(function (list) {
+      if (!~list.indexOf(e)) exclude = true
+    })
+    if (!exclude) res.push(e)
+  }
+  return res
+}
+
+/**
+ * Iterate entities of certain components,
+ * or through all if no component is passed.
+ *
+ * @param {component} c
+ * ...
+ * @param {fn} fn
+ * @return {object} this
+ * @api public
+ */
+
+proto.each = function (c, fn) {
+  var args
+  if ('function' == typeof c) {
+    this.entities.forEach(c, this)
+    return this
+  }
+  else if (Array.isArray(c)) {
+    args = c
+  }
+  else {
+    args = slice.call(arguments)
+  }
+  fn = args.pop()
+  this.of(args).forEach(fn)
+  return this
+}
+
+/**
+ * Get the first entity matching component.
+ *
+ * @param {component} c 
+ * @return {entity}
+ * @api public
+ */
+
+proto.get = function (c) {
+  return this.of(c)[0]
+}
+
+/**
+ * Use an entity, system or manager.
+ * 
+ * Registers an entity (creating a new one or reusing
+ * the one passed).
+ * 
+ * Registers a system to be used. Order added matters.
+ *
+ * Adds a manager to our children.
+ *
+ * @param {manager|system|entity} item
+ * @param {boolean} reuse
+ * @return {object} this
+ * @api public
+ */
+
+proto.use = function (item, reuse) {
+  if (item instanceof Entity) {
+    var e = item
+    if (!reuse) e = new Entity(item)
+    if (!~this.entities.indexOf(e)) {
+      var self = this
+      e.on('add', function (c) {
+        self.reg(c, e)
+      })
+      this.entities.push(e)
+      this.registerComponents(e)
+      if (this.root != this) {
+        if (!~this.root.entities.indexOf(e)) {
+          this.root.entities.push(e)
+          this.root.registerComponents(e)
+        }
+      }
+    }
+  }
+  else if ('object' == typeof item || 'function' == typeof item) {
+    item = item.system || item
+
+    this.addListeners(item)
+
+    if (!('children' in item)) {
+      item.emit = this.emit.bind(this)
+      item.each = this.each.bind(this)
+      item.of = this.of.bind(this)
+      this.systems.push(item)
+    }
+    else {
+      item.root = this.root
+      this.children.push(item)
+    }
+  }
+  else console.error('unknown', item)
+  return this
+}
+
+/**
+ * Register the components of an entity.
+ *
+ * @param {entity} e 
+ * @return {object} this
+ * @api private
+ */
+
+proto.registerComponents = function (e) {
+  var self = this
+  e.components.forEach(function (c) {
+    self.reg(c, e)
+  })
+  return this
+}
+
+/**
+ * Register a component for an entity.
+ *
+ * @param {component} c 
+ * @param {entity} e 
+ * @return {object} this
+ * @api private
+ */
+
+proto.reg = function (c, e) {
+  var comps = this.components
+  var index = this.componentsIndex
+  var idx = index.indexOf(c)
+  if (~idx) {
+    if (!~comps[idx].indexOf(e)) {
+      comps[idx].push(e)
+    }
+  }
+  else {
+    index.push(c)
+    comps[index.length-1] = [e]
+  }
+  return this
+}
+
+/**
+ * Join (late) an entity.
+ * It will try to apply components and systems
+ * based on the current state.
+ *
+ * @param {entity} e 
+ * @return {object} this
+ * @api public
+ */
+
+proto.join = function (e) {
+  this.use(e, true)
+  this.applyComponents(e)
+  var s = this.state()
+  if ('none' == s) return this
+  if ('init' == s || 'start' == s || 'pause' == s || 'stop' == s) {
+    this.runSystems(e, 'init')
+  }
+  if ('start' == s || 'pause' == s) {
+    this.runSystems(e, 'start')
+  }
+  if ('pause' == s) {
+    this.runSystems(e, 'pause')
+  }
+  return this
+}
+
+proto.runSystems = function (e, method) {
+  this.systems.forEach(function (system) {
+    if (!system[method]) return
+    if (!system[method].length) {
+      return
+    }
+    system.each(system, function (_e) {
+      if (e === _e) {
+        system[method].call(system, e)
+      }
+    })
+  })
+  return this
+}
+
+/**
+ * Create an entity of components, and use it.
+ *
+ * @param {component} c, [c, [...]]
+ * @return {entity} entity
+ * @api public
+ */
+
+proto.createEntity = function () {
+  var args = slice.call(arguments)
+  var e = new Entity(args)
+  this.use(e, true)
+  return e
+}
+
+/**
+ * Remove all entities.
+ *
+ * @return {object} this
+ * @api public
+ */
+
+proto.removeAllEntities = function () {
+  this.entities.slice().forEach(function (e) {
+    this.root.removeEntity(e)
+    this.removeEntity(e)
+  }, this)
+  return this
+}
+
+/**
+ * Remove an entity.
+ *
+ * @param {entity} e
+ * @return {object) this
+ * @api public
+ */
+
+proto.removeEntity = function (e) {
+  var self = this
+  
+  var idx = this.entities.indexOf(e)
+  if (~idx) this.entities.splice(idx, 1)
+  
+  e.components.forEach(function (c) {
+    var idx = self.componentsIndex.indexOf(c)
+    var comps = self.components[idx]
+    if (null != comps) {
+      var idx = comps.indexOf(e)
+      if (~idx) comps.splice(idx, 1)
+    }
+  })
+
+  return this
+}
+
+/**
+ * Create a manager and use it.
+ *
+ * @return {manager}
+ * @api public
+ */
+
+proto.createManager = function () {
+  var manager = new Manager(this)
+  this.use(manager)
+  return manager
+}
+
+/**
+ * Mixin helper.
+ *
+ * @param {object} target
+ * @param {object} source
+ * @param {boolean} force
+ */
+
+function mixin (t, s, f) {
+  for (var k in s) {
+    if (f || !(k in t)) t[k] = s[k]
+  }
+}
+
+});
+require.register("entity-position/index.js", function(exports, require, module){
+
+var v = require('vector')
+
+// position
+
+var pos = module.exports = {}
+
+pos.pos = [v, 0,0]
+pos.prevPos = [v, 0,0]
+pos.offset = [v, 0,0]
+
+pos.update = function (e) {
+  e.prevPos.set(e.pos)
+}
+
+});
+require.register("entity-motion/index.js", function(exports, require, module){
+
+var v = require('vector')
+
+// motion
+
+var motion = module.exports = {}
+
+motion.vel = [v, 0,0]
+
+motion.update = function (e) {
+  e.pos.add(e.vel)
+  e.vel.mul(0.25)
+}
+
+});
+require.register("component-raf/index.js", function(exports, require, module){
+
+module.exports = window.requestAnimationFrame
+  || window.webkitRequestAnimationFrame
+  || window.mozRequestAnimationFrame
+  || window.oRequestAnimationFrame
+  || window.msRequestAnimationFrame
+  || fallback;
+
+var prev = new Date().getTime();
+function fallback(fn) {
+  var curr = new Date().getTime();
+  var ms = Math.max(0, 16 - (curr - prev));
+  setTimeout(fn, ms);
+  prev = curr;
+}
+
+});
+require.register("entity-loop/index.js", function(exports, require, module){
+
+/**
+ * Module dependencies.
+ */
+
+var raf = require('raf')
+
+/**
+ * Returns a loop system using dt (delta time).
+ *
+ * @param {float} dt 
+ * @return {system} loop
+ * @api public
+ */
+
+module.exports = function (opts) {
+  opts = opts || {}
+  opts.dt = opts.dt || 1000/60
+
+  /**
+   * Loop system.
+   */
+
+  var loop = {}
+
+  /**
+   * Init loop.
+   *
+   * @api public
+   */
+
+  loop.init = function () {
+    this.maxDiff = opts.dt * 5
+    this.reset()
+  }
+
+  /**
+   * Resets loop.
+   *
+   * @api private
+   */
+
+  loop.reset = function () {
+    this.running = false
+    this.now = 0
+    this.before = 0
+    this.diff = 0
+    this.frame = 0
+    this.timeElapsed = 0
+    this.accumulator = 0
+  }
+
+  /**
+   * Starts loop.
+   *
+   * @api public
+   */
+
+  loop.start = function () {
+    this.running = true
+    // subtracting diff recovers in case of pause
+    this.before = Date.now() - this.diff
+    this.tick()
+  }
+
+  /**
+   * Pauses loop.
+   *
+   * @api public
+   */
+
+  loop.pause = function () {
+    this.running = false
+    this.diff = Date.now() - this.before
+  }
+
+  /**
+   * Stops loop.
+   * 
+   * @api private
+   */
+
+  loop.stop = function () {
+    this.running = false
+    this.reset()
+  }
+
+  /**
+   * Ticks loop.
+   *
+   * @return {object} this
+   * @api private
+   */
+
+  loop.tick = function () {
+    function tick () {
+      if (this.running) raf(tick)
+
+      this.frame++
+
+      this.now = Date.now()
+      this.diff = this.now - this.before
+      this.before = this.now
+
+      if (this.diff > this.maxDiff) {
+        this.diff = 0
+      }
+      this.add(this.diff)
+
+      while (this.overflow()) {
+        this.emit('update', this.frame, this.timeElapsed)
+      }
+      this.emit('render', this.alpha())
+    }
+
+    tick = tick.bind(this)
+    tick()
+    
+    return this
+  }
+
+  /**
+   * Adds to loop accumulator and elapsed.
+   *
+   * @param {number} ms
+   * @return {object} this
+   * @api private
+   */
+
+  loop.add = function (ms) {
+    this.timeElapsed += ms
+    this.accumulator += ms
+    return this
+  }
+
+  /**
+   * Overflow loop.
+   * 
+   * @return {boolean} whether this is an underrun
+   * @api private
+   */
+
+  loop.overflow = function () {
+    if (this.accumulator >= opts.dt) {
+      this.accumulator -= opts.dt
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Calculate alpha. In short, a float of the
+   * loop position between this tick and the next.
+   * 
+   * @return {float} alpha value
+   * @api private
+   */
+
+  loop.alpha = function () {
+    return this.accumulator / opts.dt
+  }
+
+  return loop
+}
+
+});
+require.register("entity-mouse/index.js", function(exports, require, module){
+
+var v = require('vector')
+
+// mouse
+
+module.exports = function (el) {
+  el = el || document.body
+
+  var mouse = {}
+
+  mouse.pos = [v, 0,0]
+  mouse.offset = [v, 0,0]
+
+  mouse.init = function (e) {
+    this.reset(e)
+  }
+
+  mouse.start = function (e) {
+    e.resizeListener = this.reset.bind(this, e)
+    window.addEventListener('resize', e.resizeListener, true)
+
+    e.moveListener = createListener(e)
+    el.addEventListener('mousemove', e.moveListener, true)
+  }
+
+  mouse.reset = function (e) {
+    e.offset = v(el.offsetLeft, el.offsetTop)
+  }
+
+  mouse.pause =
+  mouse.stop = function (e) {
+    el.removeEventListener('mousemove', e.moveListener, true)
+    window.removeEventListener('resize', e.resizeListener, true)
+  }
+
+  function createListener (e) {
+    return function (ev) {
+      e.pos.set([ev.clientX, ev.clientY]).sub(e.offset)
+    }
+  }
+
+  return mouse
+}
+
+});
 require.register("entity-uid/index.js", function(exports, require, module){
 var uuid = module.exports = function (id) {
   return id || (Math.random() * 10e6 | 0).toString(36)
 }
 
 uuid.id = uuid
-
-});
-require.register("component-domify/index.js", function(exports, require, module){
-
-/**
- * Expose `parse`.
- */
-
-module.exports = parse;
-
-/**
- * Wrap map from jquery.
- */
-
-var map = {
-  option: [1, '<select multiple="multiple">', '</select>'],
-  optgroup: [1, '<select multiple="multiple">', '</select>'],
-  legend: [1, '<fieldset>', '</fieldset>'],
-  thead: [1, '<table>', '</table>'],
-  tbody: [1, '<table>', '</table>'],
-  tfoot: [1, '<table>', '</table>'],
-  colgroup: [1, '<table>', '</table>'],
-  caption: [1, '<table>', '</table>'],
-  tr: [2, '<table><tbody>', '</tbody></table>'],
-  td: [3, '<table><tbody><tr>', '</tr></tbody></table>'],
-  th: [3, '<table><tbody><tr>', '</tr></tbody></table>'],
-  col: [2, '<table><tbody></tbody><colgroup>', '</colgroup></table>'],
-  _default: [0, '', '']
-};
-
-/**
- * Parse `html` and return the children.
- *
- * @param {String} html
- * @return {Array}
- * @api private
- */
-
-function parse(html) {
-  if ('string' != typeof html) throw new TypeError('String expected');
-  
-  // tag name
-  var m = /<([\w:]+)/.exec(html);
-  if (!m) throw new Error('No elements were generated.');
-  var tag = m[1];
-  
-  // body support
-  if (tag == 'body') {
-    var el = document.createElement('html');
-    el.innerHTML = html;
-    return [el.removeChild(el.lastChild)];
-  }
-  
-  // wrap map
-  var wrap = map[tag] || map._default;
-  var depth = wrap[0];
-  var prefix = wrap[1];
-  var suffix = wrap[2];
-  var el = document.createElement('div');
-  el.innerHTML = prefix + html + suffix;
-  while (depth--) el = el.lastChild;
-
-  return orphan(el.children);
-}
-
-/**
- * Orphan `els` and return an array.
- *
- * @param {NodeList} els
- * @return {Array}
- * @api private
- */
-
-function orphan(els) {
-  var ret = [];
-
-  while (els.length) {
-    ret.push(els[0].parentNode.removeChild(els[0]));
-  }
-
-  return ret;
-}
 
 });
 require.register("component-css/index.js", function(exports, require, module){
@@ -1833,14 +1748,13 @@ module.exports = function(el, obj){
 });
 require.register("entity-dom/index.js", function(exports, require, module){
 
-var domify = require('domify')
 var css = require('css')
 var rect = require('rect')
 var v = require('vector')
 
 var domEl = function (el) {
   if (el) return el
-  else return domify('<div class="entity entity-dom"></div>')[0]
+  else return document.createElement('div')
 }
 
 module.exports = function (parentEl) {
@@ -1848,33 +1762,96 @@ module.exports = function (parentEl) {
   
   dom.el = [domEl]
 
-  dom.render = function (e) {
-    var pos = v(e.mesh.pos).sub(e.offset)
-    css(e.el, {
-      left: Math.round(pos.left)
-    , top: Math.round(pos.top)
-    })
-  }
+  // listeners
 
   dom.init = function (e) {
     if (e.id) e.el.attributes.id = e.id
-    if (e.class) e.el.classList.add(e.class)
-    var size = e.mesh.size
-    css(e.el, {
-      width: size.width
-    , height: size.height
-    })
+    if (e.class) e.setClass(e.class)
+    if (e.classList) {
+      e.setClass()
+      e.classList.forEach(function (c) {
+        e.el.classList.add(c)
+      })
+    }
+    e.resize(e.mesh.size)
   }
 
   dom.start = function (e) {
     parentEl.appendChild(e.el)
   }
 
+  dom.render = function (e) {
+    e.moveTo(v(e.mesh.pos).sub(e.offset))
+  }
+
   dom.stop = function (e) {
     parentEl.removeChild(e.el)
   }
 
+  // methods
+
+  dom.moveTo = function (pos) {
+    css(this.el, {
+      left: Math.round(pos.left)
+    , top: Math.round(pos.top)
+    })
+  }
+
+  dom.resize = function (size) {
+    css(this.el, {
+      width: size.width
+    , height: size.height
+    })
+  }
+
+  dom.setClass = function (className) {
+    this.el.className = 'entity entity-dom'
+    if (className) this.el.classList.add(className)
+  }
+
   return dom
+}
+
+});
+require.register("entity-log/index.js", function(exports, require, module){
+
+var log = function (prop, val) {
+  log.data[prop] = val
+}
+
+log.el = document.createElement('div')
+log.html = []
+log.data = {}
+
+module.exports = function (prop, val) {
+  if (prop instanceof Element) {
+    log.parentEl = prop
+  }
+  else {
+    log(prop, val)
+  }
+  return log
+}
+
+log.init = function () {
+  log.el.classList.add('log')
+  log.parentEl.appendChild(log.el)
+}
+
+log.tear = function () {
+  log.parentEl.removeChild(log.el)
+}
+
+log.update = function () {
+  var html = log.html
+  html.length = 0
+  for (var prop in log.data) {
+    html.push('<pre>'+prop+': '+log.data[prop]+'</pre>')
+  }
+}
+
+log.render = function () {
+  log.el.innerHTML = log.html.join('')
 }
 
 });
@@ -1893,10 +1870,13 @@ require.register("arkanoid/arkanoid.js", function(exports, require, module){
 var v = require('vector')
 var rect = require('rect')
 var manager = require('manager')
+var Entity = require('entity')
 
 /**
  * Main game object.
  */
+
+var defaults = require('./defaults')
 
 var game = module.exports = {}
 game.el = document.getElementById('game')
@@ -1907,9 +1887,10 @@ game.el = document.getElementById('game')
 
 var position = require('position')
 var motion = require('motion')
-var loop = require('loop')()
+var loop = require('loop')(defaults)
 var input = require('mouse')(game.el)
-var dom = require('dom')(game.el)
+var render = require('dom')(game.el)
+var log = require('log')(game.el)
 
 /**
  * Create a world manager.
@@ -1921,13 +1902,13 @@ var world = game.world = manager()
  * Bricks manager.
  */
 
-var bricks = world.createManager()
+var bricks = game.bricks = world.createManager()
 
 /**
  * Balls manager.
  */
 
-var balls = world.createManager()
+var balls = game.balls = world.createManager()
 
 /**
  * Borders rectangle.
@@ -1938,110 +1919,35 @@ var borders = rect(
 , [game.el.clientWidth, game.el.clientHeight]
 )
 
+var offset = {
+  offset: [v, 4.5]
+}
+
+offset.getAbsPos = function () {
+  return v(this.pos).minus(this.offset)
+}
+
 /**
  * Shapes components.
  */
 
 var box = {
   mesh: [rect, [0,0], [9,9]]
-, offset: [v, 4.5]
 }
 
 var circle = {
-  radius: [v, 4.5]
+  radius: [Number, 4.5]
 }
 
 /**
- * Ball collision to brick system.
- *
- * @api system
+ * Bounce on borders and racket.
  */
 
-var collide = {
-  update: function (ball) {
-    var colls = []
-    bricks.each(function (brick) {
-      if (brick.removed) return
+var ballBounce = require('./systems/ball-bounce')(defaults)
 
-      var a = v(ball.pos).minus(ball.offset)
-      var b = v(brick.pos).minus(brick.offset).plus(v(4.5, 2))
-      var dist = v(
-        (a.x+ball.vel.x)-b.x
-      , (a.y+ball.vel.y)-b.y
-      ).abs()
-
-      // collides    
-      if (dist.y <= 8 && dist.x <= (brick.mesh.size.width/2)+6) {
-        dist.brick = brick
-        colls.push(dist)
-      }
-    })
-
-    // do we have collisions?
-    if (colls.length) {
-      // find the closer one
-      var res = colls.reduce(function (p, n) {
-        return n.min(p)
-      }, v(100,100))
-      // hide the brick
-      res.brick.el.classList.add('hide')
-      res.brick.removed = true
-      // try to determine which way it was hit
-      // and switch directions accordingly
-      if (res.y > res.x/2) {
-        ball.dir.y = -ball.dir.y
-        ball.vel.y = -ball.vel.y
-      }
-      else {
-        ball.dir.x = -ball.dir.x
-        ball.vel.x = -ball.vel.x
-      }
-      // move ball away from collision
-//      ball.pos.add(ball.vel)
-    }
-  }
-}
-
-/**
- * Ball bounce on borders and racket system.
- *
- * @api system
- * @api component
- */
-
-var bounce = {
-  bounceGain: [v, 1.003]
-, update: function (e) {
-    
-    // bounce to borders
-    var n = v(e.pos).plus(e.vel).minus(e.offset)
-    if ( n.x+e.mesh.size.width > borders.size.x
-      || n.x < borders.pos.x) {
-      e.speed.mul(e.bounceGain)
-      e.dir.x = -e.dir.x
-    }
-    else if (n.y+e.mesh.size.height > borders.size.y) {
-      e.speed.set(2)
-      e.dir.set(1,1)
-      e.pos.set(v(borders.size).half())
-    }
-    else if (n.y < borders.pos.y) {
-      e.speed.mul(e.bounceGain)
-      e.dir.y = -e.dir.y
-    }
-
-    // bounce to racket
-    var r = v(racket.pos).minus(racket.offset)
-    if (n.y+e.mesh.size.height > r.y && n.y < r.y+(racket.mesh.size.height/2)
-      && n.x+e.mesh.size.width > r.x && n.x < r.x+racket.mesh.size.width
-    ) {
-      e.dir.y = -1
-      var diff = ((r.x+racket.offset.x)-(n.x+e.offset.x))
-      e.dir.x = (diff*0.05)*-1 + e.dir.x
-    }
-    e.vel.set(v(e.dir).mul(e.speed))
-  
-  }
+ballBounce.update = function (e) {
+  e.bounceBorders(borders)
+  e.bounceRacket(playerRacket)
 }
 
 /**
@@ -2050,16 +1956,14 @@ var bounce = {
  * @api system
  */
 
-var keepInBorders = {
-  update: function (e) {
-    e.pos
-      .limit(
-        rect(
-          v(borders.pos).plus(e.offset)
-        , v(borders.size).sub(e.mesh.size).plus(e.offset)
-        )
-      )
-  }
+var limitBorders = {}
+
+limitBorders.update = function (e) {
+  e.pos.limit(
+    rect(
+      v(borders.pos).plus(e.offset)
+    , v(borders.size).sub(e.mesh.size).plus(e.offset)
+    ))
 }
 
 /**
@@ -2068,54 +1972,76 @@ var keepInBorders = {
  * position sent by the loop system in the render
  * event.
  *
- * @system
+ * @api system
  */
 
-var smoother = {
-  render: function (e, a) {
-    e.mesh.pos.set(v(e.prevPos).lerp(e.pos, a))
-  }
+var smooth = {}
+
+smooth.render = function (e, a) {
+  e.mesh.pos.set(v(e.prevPos).lerp(e.pos, a))
 }
 
 /**
- * Make entity follow a target.
+ * Ball collision to brick system.
  *
  * @api system
- * @api component
  */
 
-var followTarget = {
-  target: [v, v(borders.size).half()]
-, update: function (e) {
+var ballCollide = require('./systems/ball-collide')
+
+/**
+ * Create a follow system.
+ *
+ * @param {float} mul
+ * @param {vector} initpos
+ */
+
+function Follow (mul, initpos) {
+  var f = {}
+
+  f.target = [v, initpos]
+
+  f.update = function (e) {
     e.vel.add(
       v(e.target).sub(e.pos)
-      .mul(0.245))
+      .mul(mul))
   }
+
+  return f
 }
 
 /**
- * Limit y velocity to 0.
- *
- * @api system
+ * A follow target system.
  */
 
-var limitY = {
-  update: function (e) {
-    e.vel.y = 0
-  }
-}
+var follow = Follow(defaults.followSpeed, v(borders.size).half())
 
 /**
- * Pointer controls entity.
- *
- * @api system
+ * Pipe system.
  */
 
-var control = {
-  update: function (e) {
-    e.target.set(pointer.pos)
+function Pipe (input, a, b) {
+  var pipe = {}
+
+  pipe.update = function (e) {
+    e[b].set(input[a])
   }
+
+  return pipe
 }
+
+// sprite component/system
+var sprite = {}
+
+sprite.components = [
+  box
+, offset
+, position
+, motion
+, limitBorders
+, smooth
+, render
+]
 
 /**
  * Brick system.
@@ -2124,11 +2050,23 @@ var control = {
  */
 
 var brick = {
-  init: function (e) {
-    e.mesh.pos.set(e.pos)
-    e.el.classList.remove('hide')
-    e.removed = false          
-  }
+  components: [sprite]
+, type: [String, 'plain']
+, class: [String, 'brick']
+}
+
+brick.init = function (e) {
+  e.mesh.pos.set(e.pos)
+  e.setClass('brick')
+  e.setType('plain')
+  e.removed = false
+}
+
+brick.setType = function (nt) {
+  var e = this
+  if (e.type != nt) e.el.classList.remove(e.type)
+  e.type = nt
+  e.el.classList.add(nt)
 }
 
 /**
@@ -2143,99 +2081,89 @@ function Bricks (cols, rows) {
   cols = cols || 12
   rows = rows || 6
   var bsize = Math.floor((borders.size.width-3-(cols*3)) / cols)
+  var bricks = []
   for (var x=0; x<cols; x++) {
     for (var y=0; y<rows; y++) {
-      bricks.createEntity(box, dom, brick, {
+      var b = new Entity([brick, {
         mesh: [rect, [0,0], [bsize,12]]
       , offset: [v, bsize/2,6]
       , pos: [v, 20+(x*(bsize+3)), 40+(14*y)]
-      , class: [String, 'brick']
-      })
+      }])
+      bricks.push(b)
     }
   }
   return bricks
 }
 
-/**
- * Ball entity factory.
- */
+// pointer entity
+var pointer = world.createEntity(
+  position
+, input
+, {
+    pos: [v, v(borders.size).half()]
+  }
+)
 
-function Ball () {
-  return balls.createEntity(
-    box
-  , circle
-  , position
-  , motion
-  , dom
-  , bounce
-  , collide
-  , keepInBorders
-  , smoother
-  , {
-      dir: [v, 1,1]
-    , speed: [v, 2]
-    , pos: [v, v(borders.size).half()]
-    , class: [String, 'ball']
-    }
-  )
+// control system, pipes `pointer.pos` to `e.target`
+var control = Pipe(pointer, 'pos', 'target')
+
+// racket component/system
+var racket = {
+  components: [sprite, control, follow]
+}
+
+racket.update = function (e) {
+  e.vel.y = 0
 }
 
 /**
  * Racket entity factory.
+ *
+ * @param {number} width in pixels
  */
 
-function Racket () {
-  return world.createEntity(
-    dom
-  , position
-  , motion
-  , control
-  , followTarget
-  , limitY
-  , keepInBorders
-  , smoother
-  , {
-      pos: [v, v(borders.size).half().x,240]
-    , mesh: [rect, [0,0], [54,12]]
-    , offset: [v, 27,6]
-    , class: [String, 'racket']
-    }
-  )
+function Racket (width) {
+  return world.createEntity(racket, {
+    pos: [v, v(borders.size).half().x,240]
+  , mesh: [rect, [0,0], [width,12]]
+  , offset: [v, width/2,6]
+  , class: [String, 'racket']
+  })
 }
 
-/**
- * Pointer entity.
- */
+// ball system
+var ball = {}
+ball.components = [sprite, circle, ballCollide, ballBounce]
 
-var pointer = world.createEntity(position, input, {
-  pos: [v, v(borders.size).half()]
-})
+// ball entity factory
+ball.create = function (opts) {
+  return new Entity([ball, opts])
+}
 
-/**
- * Container entity.
- */
+function Ball () {
+  return ball.create({
+    dir: [v, 1.5,1.5]
+  , speed: [v, 1.5]
+  , pos: [v, v(borders.size).half()]
+  , class: [String, 'ball']
+  })
+}
 
-var container = world.createEntity(dom, {
+// container entity
+var container = world.createEntity(sprite, {
   class: 'container'
 , mesh: [rect, borders]
 })
 
-/**
- * Create racket.
- */
+// create racket
+var playerRacket = Racket(defaults.racketWidth)
 
-var racket = Racket()
+// create bricks
+Bricks(12, 5).forEach(function (e) {
+  bricks.use(e, true)
+})
 
-/**
- * Create bricks.
- */
-
-Bricks(12, 5)
-
-/**
- * Button controls.
- */
-
+// button controls
 var get = document.getElementById.bind(document)
 get('start').onclick = world.start.bind(world)
 get('pause').onclick = world.pause.bind(world)
@@ -2245,16 +2173,46 @@ get('add-ball').onclick = function () {
   world.join(Ball())
 }
 
+var randomizeBricks = {}
+
+randomizeBricks.init = function () {
+  var types = [
+    ['extra',5]
+  , ['hot',10]
+  , ['double',20]
+  , ['plain',100]
+  ]
+  var maxWeight = types.reduce(function (p, n) {
+    return Math.max(p, n[1])
+  }, 0)
+  setTimeout(function () {
+    bricks.each(function (e) {
+      e.setType('plain')
+      var r = Math.random() * maxWeight
+      var type
+      for (var i=0, len=types.length; i<len;i++) {
+        if (r < types[i][1]) {
+          type = types[i][0]
+          break
+        }
+      }
+      if (!type) type = types[0]
+      e.setType(type)
+    })
+  }, 0)
+}
+
 /**
  * Setup some listeners.
  */
 
 world.on('init', function () {
   world.join(Ball())
+
 })
 
 world.on('tear', function () {
-  balls.removeAllEntities()
+  world.each(ball, world.removeEntity.bind(world))
 })
 
 /**
@@ -2265,22 +2223,31 @@ world
   .use(loop)
   
   .use(input)
+
   .use(control)
+  .use(follow)
+
+  .use(racket)
   
   .use(position)
 
+  .use(ball)
   .use(brick)
-  .use(followTarget)
-  .use(limitY)
-  .use(bounce)
-  .use(collide)
-  
+
+  .use(randomizeBricks)
+
+  .use(ballBounce)
+  .use(ballCollide)
+
   .use(motion)
+
+  .use(limitBorders)
+
+  .use(smooth)
   
-  .use(keepInBorders)
-  .use(smoother)
-  
-  .use(dom)
+  .use(log)
+
+  .use(render)
 
 /**
  * Start game.
@@ -2292,10 +2259,207 @@ world
   .start()
 
 });
+require.register("arkanoid/defaults.js", function(exports, require, module){
+
+var d = {}
+
+module.exports = d
+
+d.dt = 1000/60
+d.bordersGain = 1.002
+d.racketTilt = 0.052
+d.followSpeed = 0.215
+d.racketWidth = 60
+
+});
+require.register("arkanoid/systems/ball-bounce.js", function(exports, require, module){
+
+var v = require('vector')
+var rect = require('rect')
+
+/**
+ * Create a bounce system.
+ *
+ * Options:
+ *   @option {float} gain  Gain multiplier.
+ *
+ * @param {object} options
+ * @return {object} system
+ */
+
+module.exports = function (opts) {
+  opts = opts || {}
+  opts.bordersGain = opts.bordersGain || 1.003
+  opts.racketTilt = opts.racketTilt || 0.052
+
+  /**
+   * Bounce on borders and racket system.
+   *
+   * @api system
+   * @api component
+   */
+
+  var bounce = {}
+
+  /**
+   * Bounce to borders.
+   *
+   * @param {rect} borders
+   */
+
+  bounce.bounceBorders = function (borders) {
+    var e = this
+    var n = v(e.pos).plus(e.vel).minus(e.offset)
+    if ( n.x+e.mesh.size.width > borders.size.x
+      || n.x < borders.pos.x) {
+      e.speed.mul(opts.bordersGain)
+      e.dir.x = -e.dir.x
+    }
+    else if (n.y+e.mesh.size.height > borders.size.y) {
+      e.speed.set(e.getDefault('speed'))
+      e.dir.set(e.getDefault('dir'))
+      e.pos.set(e.getDefault('pos'))
+    }
+    else if (n.y < borders.pos.y) {
+      e.speed.mul(opts.bordersGain)
+      e.dir.y = -e.dir.y
+    }
+  }
+
+  /**
+   * Bounce to racket.
+   *
+   * @param {entity} racket
+   */
+
+  bounce.bounceRacket = function (racket) {
+    var e = this
+    var n = v(e.pos).plus(e.vel).minus(e.offset)
+    var r = v(racket.pos).minus(racket.offset)
+    if (n.y+e.mesh.size.height > r.y && n.y < r.y+(racket.mesh.size.height/2)
+      && n.x+e.mesh.size.width > r.x && n.x < r.x+racket.mesh.size.width
+    ) {
+      if (e.dir.y > 0) {
+        var diff = (((r.x+racket.offset.x)-(n.x+e.offset.x))*-1)*opts.racketTilt
+        e.dir.x += diff
+        e.dir.x = v(e.dir.x).limit(v(-9,9)).x
+        e.dir.y = -e.dir.y
+      }
+    }
+    e.vel.set(v(e.dir).mul(e.speed))
+  }
+
+  return bounce
+}
+
+});
+require.register("arkanoid/systems/ball-collide.js", function(exports, require, module){
+
+var v = require('vector')
+var game = require('../arkanoid')
+var log = require('log')
+
+var collide = {}
+
+collide.collidesBrick = function (brick) {
+  var ball = this
+  
+  var a = v(ball.pos).minus(ball.offset)
+  var b = v(brick.pos).minus(brick.offset)
+
+  if (
+      a.x + ball.mesh.size.width
+      > b.x
+    &&
+      a.x
+      < b.x + brick.mesh.size.width
+    &&
+      a.y + ball.mesh.size.height
+      > b.y
+    &&
+      a.y
+      < b.y + brick.mesh.size.height
+    ) {
+    return v(a).minus(b)
+  }
+}
+
+collide.update = function (ball) {
+  var hits = {}
+  var colls = []
+  game.bricks.each(function (brick) {
+    if (brick.removed) return
+
+    // get collision
+    var coll = ball.collidesBrick(brick)
+
+    // add collision to hits
+    if (coll) {
+      coll.brick = brick.id
+      hits[brick.id] = brick
+      colls.push(coll)
+    }
+  })
+
+  // do we have collisions?
+  if (colls.length) {
+
+    // find the closer one
+    var closest = colls.sort(function (a, b) {
+      return a.mod() - b.mod()
+    })[0]
+
+    var hit = hits[closest.brick]
+    
+    // hide the brick
+    hit.el.classList.add('hide')
+    hit.removed = true
+
+    // absolute distance    
+    var dist = v(closest).abs()
+
+    // save position
+    var p = v(ball.pos)
+    
+    // determine response dir
+    if (dist.y > dist.x/2.5) {
+      ball.dir.y = -ball.dir.y
+      ball.vel.y = -ball.vel.y
+      ball.pos.add(ball.vel)
+      if (ball.collidesBrick(hit)) {
+        ball.pos.set(p)
+        ball.dir.neg()
+        ball.vel.neg()
+      }
+    }
+    else {
+      ball.dir.x = -ball.dir.x
+      ball.vel.x = -ball.vel.x
+      ball.pos.add(ball.vel)
+      if (ball.collidesBrick(hit)) {
+        ball.pos.set(p)
+        ball.dir.neg()
+        ball.vel.neg()
+      }
+    }
+
+    // restore position
+    ball.pos.set(p)
+  }
+}
+
+module.exports = collide
+
+});
 require.alias("entity-vector/index.js", "arkanoid/deps/vector/index.js");
 
 require.alias("entity-rect/index.js", "arkanoid/deps/rect/index.js");
 require.alias("entity-vector/index.js", "entity-rect/deps/vector/index.js");
+
+require.alias("entity-entity/index.js", "arkanoid/deps/entity/index.js");
+require.alias("component-emitter/index.js", "entity-entity/deps/emitter/index.js");
+
+require.alias("entity-uid/index.js", "entity-entity/deps/uid/index.js");
 
 require.alias("entity-manager/index.js", "arkanoid/deps/manager/index.js");
 require.alias("component-emitter/index.js", "entity-manager/deps/emitter/index.js");
@@ -2317,22 +2481,17 @@ require.alias("component-raf/index.js", "entity-loop/deps/raf/index.js");
 require.alias("entity-mouse/index.js", "arkanoid/deps/mouse/index.js");
 require.alias("entity-vector/index.js", "entity-mouse/deps/vector/index.js");
 
-require.alias("entity-entity/index.js", "arkanoid/deps/entity/index.js");
-require.alias("component-emitter/index.js", "entity-entity/deps/emitter/index.js");
-
-require.alias("entity-uid/index.js", "entity-entity/deps/uid/index.js");
-
 require.alias("entity-uid/index.js", "arkanoid/deps/uid/index.js");
 
 require.alias("entity-dom/index.js", "arkanoid/deps/dom/index.js");
-require.alias("component-domify/index.js", "entity-dom/deps/domify/index.js");
-
 require.alias("component-css/index.js", "entity-dom/deps/css/index.js");
 
 require.alias("entity-vector/index.js", "entity-dom/deps/vector/index.js");
 
 require.alias("entity-rect/index.js", "entity-dom/deps/rect/index.js");
 require.alias("entity-vector/index.js", "entity-rect/deps/vector/index.js");
+
+require.alias("entity-log/index.js", "arkanoid/deps/log/index.js");
 
 require.alias("arkanoid/arkanoid.js", "arkanoid/index.js");
 
