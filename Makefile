@@ -1,11 +1,11 @@
 
-build: arkanoid.js arkanoid.css components
+build: components
 	@component-build
 
-components:
+components: component.json
 	@component-install
 
 clean:
-	rm -fr build components
+	rm -rf build components
 
 .PHONY: clean
