@@ -98,57 +98,29 @@ ballBounce.update = function (e) {
  * @api system
  */
 
-var bounce = {
-  bounceGain: [v, 1.003]
-, update: function (e) {
-    
-    // bounce to borders
-    var n = v(e.pos).plus(e.vel).minus(e.offset)
-    if ( n.x+e.mesh.size.width > borders.size.x
-      || n.x < borders.pos.x) {
-      e.speed.mul(e.bounceGain)
-      e.dir.x = -e.dir.x
-    }
-    else if (n.y+e.mesh.size.height > borders.size.y) {
-      e.speed.set(2)
-      e.dir.set(1,1)
-      e.pos.set(v(borders.size).half())
-    }
-    else if (n.y < borders.pos.y) {
-      e.speed.mul(e.bounceGain)
-      e.dir.y = -e.dir.y
-    }
+var limitBorders = {}
 
-    // bounce to racket
-    var r = v(racket.pos).minus(racket.offset)
-    if (n.y+e.mesh.size.height > r.y && n.y < r.y+(racket.mesh.size.height/2)
-      && n.x+e.mesh.size.width > r.x && n.x < r.x+racket.mesh.size.width
-    ) {
-      e.dir.y = -1
-      var diff = ((r.x+racket.offset.x)-(n.x+e.offset.x))
-      e.dir.x = (diff*0.05)*-1 + e.dir.x
-    }
-    e.vel.set(v(e.dir).mul(e.speed))
-  
-  }
+limitBorders.update = function (e) {
+  e.pos.limit(
+    rect(
+      v(borders.pos).plus(e.offset)
+    , v(borders.size).sub(e.mesh.size).plus(e.offset)
+    ))
 }
 
 /**
- * Keep position in borders.
+ * Make motion smoother. Interpolates between
+ * the previous and this step based on the alpha
+ * position sent by the loop system in the render
+ * event.
  *
  * @api system
  */
 
-var keepInBorders = {
-  update: function (e) {
-    e.pos
-      .limit(
-        rect(
-          v(borders.pos).plus(e.offset)
-        , v(borders.size).sub(e.mesh.size).plus(e.offset)
-        )
-      )
-  }
+var smooth = {}
+
+smooth.render = function (e, a) {
+  e.mesh.pos.set(v(e.prevPos).lerp(e.pos, a))
 }
 
 /**
@@ -160,44 +132,58 @@ var keepInBorders = {
 var ballCollide = require('./systems/ball-collide')
 
 /**
- * Make entity follow a target.
+ * Create a follow system.
  *
- * @api system
- * @api component
+ * @param {float} mul
+ * @param {vector} initpos
  */
 
-var followTarget = {
-  target: [v, v(borders.size).half()]
-, update: function (e) {
+function Follow (mul, initpos) {
+  var f = {}
+
+  f.target = [v, initpos]
+
+  f.update = function (e) {
     e.vel.add(
       v(e.target).sub(e.pos)
-      .mul(0.245))
+      .mul(mul))
   }
+
+  return f
 }
 
 /**
- * Limit y velocity to 0.
- *
- * @api system
+ * A follow target system.
  */
 
-var limitY = {
-  update: function (e) {
-    e.vel.y = 0
-  }
-}
+var follow = Follow(defaults.followSpeed, v(borders.size).half())
 
 /**
- * Pointer controls entity.
- *
- * @api system
+ * Pipe system.
  */
 
-var control = {
-  update: function (e) {
-    e.target.set(pointer.pos)
+function Pipe (input, a, b) {
+  var pipe = {}
+
+  pipe.update = function (e) {
+    e[b].set(input[a])
   }
+
+  return pipe
 }
+
+// sprite component/system
+var sprite = {}
+
+sprite.components = [
+  box
+, offset
+, position
+, motion
+, limitBorders
+, smooth
+, render
+]
 
 /**
  * Brick system.
@@ -206,11 +192,23 @@ var control = {
  */
 
 var brick = {
-  init: function (e) {
-    e.mesh.pos.set(e.pos)
-    e.el.classList.remove('hide')
-    e.removed = false          
-  }
+  components: [sprite]
+, type: [String, 'plain']
+, class: [String, 'brick']
+}
+
+brick.init = function (e) {
+  e.mesh.pos.set(e.pos)
+  e.setClass('brick')
+  e.setType('plain')
+  e.removed = false
+}
+
+brick.setType = function (nt) {
+  var e = this
+  if (e.type != nt) e.el.classList.remove(e.type)
+  e.type = nt
+  e.el.classList.add(nt)
 }
 
 /**
@@ -225,99 +223,89 @@ function Bricks (cols, rows) {
   cols = cols || 12
   rows = rows || 6
   var bsize = Math.floor((borders.size.width-3-(cols*3)) / cols)
+  var bricks = []
   for (var x=0; x<cols; x++) {
     for (var y=0; y<rows; y++) {
-      bricks.createEntity(box, dom, brick, {
+      var b = new Entity([brick, {
         mesh: [rect, [0,0], [bsize,12]]
       , offset: [v, bsize/2,6]
       , pos: [v, 20+(x*(bsize+3)), 40+(14*y)]
-      , class: [String, 'brick']
-      })
+      }])
+      bricks.push(b)
     }
   }
   return bricks
 }
 
-/**
- * Ball entity factory.
- */
+// pointer entity
+var pointer = world.createEntity(
+  position
+, input
+, {
+    pos: [v, v(borders.size).half()]
+  }
+)
 
-function Ball () {
-  return balls.createEntity(
-    box
-  , circle
-  , position
-  , motion
-  , dom
-  , bounce
-  , collide
-  , keepInBorders
-  , smoother
-  , {
-      dir: [v, 1,1]
-    , speed: [v, 2]
-    , pos: [v, v(borders.size).half()]
-    , class: [String, 'ball']
-    }
-  )
+// control system, pipes `pointer.pos` to `e.target`
+var control = Pipe(pointer, 'pos', 'target')
+
+// racket component/system
+var racket = {
+  components: [sprite, control, follow]
+}
+
+racket.update = function (e) {
+  e.vel.y = 0
 }
 
 /**
  * Racket entity factory.
+ *
+ * @param {number} width in pixels
  */
 
-function Racket () {
-  return world.createEntity(
-    dom
-  , position
-  , motion
-  , control
-  , followTarget
-  , limitY
-  , keepInBorders
-  , smoother
-  , {
-      pos: [v, v(borders.size).half().x,240]
-    , mesh: [rect, [0,0], [54,12]]
-    , offset: [v, 27,6]
-    , class: [String, 'racket']
-    }
-  )
+function Racket (width) {
+  return world.createEntity(racket, {
+    pos: [v, v(borders.size).half().x,240]
+  , mesh: [rect, [0,0], [width,12]]
+  , offset: [v, width/2,6]
+  , class: [String, 'racket']
+  })
 }
 
-/**
- * Pointer entity.
- */
+// ball system
+var ball = {}
+ball.components = [sprite, circle, ballCollide, ballBounce]
 
-var pointer = world.createEntity(position, input, {
-  pos: [v, v(borders.size).half()]
-})
+// ball entity factory
+ball.create = function (opts) {
+  return new Entity([ball, opts])
+}
 
-/**
- * Container entity.
- */
+function Ball () {
+  return ball.create({
+    dir: [v, 1.5,1.5]
+  , speed: [v, 1.5]
+  , pos: [v, v(borders.size).half()]
+  , class: [String, 'ball']
+  })
+}
 
-var container = world.createEntity(dom, {
+// container entity
+var container = world.createEntity(sprite, {
   class: 'container'
 , mesh: [rect, borders]
 })
 
-/**
- * Create racket.
- */
+// create racket
+var playerRacket = Racket(defaults.racketWidth)
 
-var racket = Racket()
+// create bricks
+Bricks(12, 5).forEach(function (e) {
+  bricks.use(e, true)
+})
 
-/**
- * Create bricks.
- */
-
-Bricks(12, 5)
-
-/**
- * Button controls.
- */
-
+// button controls
 var get = document.getElementById.bind(document)
 get('start').onclick = world.start.bind(world)
 get('pause').onclick = world.pause.bind(world)
@@ -327,16 +315,46 @@ get('add-ball').onclick = function () {
   world.join(Ball())
 }
 
+var randomizeBricks = {}
+
+randomizeBricks.init = function () {
+  var types = [
+    ['extra',5]
+  , ['hot',10]
+  , ['double',20]
+  , ['plain',100]
+  ]
+  var maxWeight = types.reduce(function (p, n) {
+    return Math.max(p, n[1])
+  }, 0)
+  setTimeout(function () {
+    bricks.each(function (e) {
+      e.setType('plain')
+      var r = Math.random() * maxWeight
+      var type
+      for (var i=0, len=types.length; i<len;i++) {
+        if (r < types[i][1]) {
+          type = types[i][0]
+          break
+        }
+      }
+      if (!type) type = types[0]
+      e.setType(type)
+    })
+  }, 0)
+}
+
 /**
  * Setup some listeners.
  */
 
 world.on('init', function () {
   world.join(Ball())
+
 })
 
 world.on('tear', function () {
-  balls.removeAllEntities()
+  world.each(ball, world.removeEntity.bind(world))
 })
 
 /**
@@ -347,22 +365,31 @@ world
   .use(loop)
   
   .use(input)
+
   .use(control)
+  .use(follow)
+
+  .use(racket)
   
   .use(position)
 
+  .use(ball)
   .use(brick)
-  .use(followTarget)
-  .use(limitY)
-  .use(bounce)
-  .use(collide)
-  
+
+  .use(randomizeBricks)
+
+  .use(ballBounce)
+  .use(ballCollide)
+
   .use(motion)
+
+  .use(limitBorders)
+
+  .use(smooth)
   
-  .use(keepInBorders)
-  .use(smoother)
-  
-  .use(dom)
+  .use(log)
+
+  .use(render)
 
 /**
  * Start game.
