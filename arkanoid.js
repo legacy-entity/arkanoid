@@ -61,13 +61,20 @@ var borders = rect(
 , [game.el.clientWidth, game.el.clientHeight]
 )
 
+var offset = {
+  offset: [v, 4.5]
+}
+
+offset.getAbsPos = function () {
+  return v(this.pos).minus(this.offset)
+}
+
 /**
  * Shapes components.
  */
 
 var box = {
   mesh: [rect, [0,0], [9,9]]
-, offset: [v, 4.5]
 }
 
 var circle = {
