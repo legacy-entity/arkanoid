@@ -82,61 +82,20 @@ var circle = {
 }
 
 /**
- * Ball collision to brick system.
- *
- * @api system
+ * Bounce on borders and racket.
  */
 
-var collide = {
-  update: function (ball) {
-    var colls = []
-    bricks.each(function (brick) {
-      if (brick.removed) return
+var ballBounce = require('./systems/ball-bounce')(defaults)
 
-      var a = v(ball.pos).minus(ball.offset)
-      var b = v(brick.pos).minus(brick.offset).plus(v(4.5, 2))
-      var dist = v(
-        (a.x+ball.vel.x)-b.x
-      , (a.y+ball.vel.y)-b.y
-      ).abs()
-
-      // collides    
-      if (dist.y <= 8 && dist.x <= (brick.mesh.size.width/2)+6) {
-        dist.brick = brick
-        colls.push(dist)
-      }
-    })
-
-    // do we have collisions?
-    if (colls.length) {
-      // find the closer one
-      var res = colls.reduce(function (p, n) {
-        return n.min(p)
-      }, v(100,100))
-      // hide the brick
-      res.brick.el.classList.add('hide')
-      res.brick.removed = true
-      // try to determine which way it was hit
-      // and switch directions accordingly
-      if (res.y > res.x/2) {
-        ball.dir.y = -ball.dir.y
-        ball.vel.y = -ball.vel.y
-      }
-      else {
-        ball.dir.x = -ball.dir.x
-        ball.vel.x = -ball.vel.x
-      }
-      // move ball away from collision
-//      ball.pos.add(ball.vel)
-    }
-  }
+ballBounce.update = function (e) {
+  e.bounceBorders(borders)
+  e.bounceRacket(playerRacket)
 }
 
 /**
- * Ball bounce on borders and racket system.
+ * Keep position in borders.
  *
  * @api system
- * @api component
  */
 
 var bounce = {
@@ -193,19 +152,12 @@ var keepInBorders = {
 }
 
 /**
- * Make motion smoother. Interpolates between
- * the previous and this step based on the alpha
- * position sent by the loop system in the render
- * event.
+ * Ball collision to brick system.
  *
- * @system
+ * @api system
  */
 
-var smoother = {
-  render: function (e, a) {
-    e.mesh.pos.set(v(e.prevPos).lerp(e.pos, a))
-  }
-}
+var ballCollide = require('./systems/ball-collide')
 
 /**
  * Make entity follow a target.
