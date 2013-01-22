@@ -33,21 +33,36 @@ html, body {
   background: #80f;
   box-shadow:
     inset 1px 2px 5px #dcf
-  , inset -1px -2px 2px rgba(5,0,30,.5);
+  , inset -1px -2px 2px #307;
 }
 #game .ball {
   border-radius: 15px;
   background: #8f0;
   box-shadow:
-    inset 1px 1px 1px #fff
-  , inset -2px -2px 1px rgba(5,30,0,.2);
+    inset 1px 1px 1px #efe
+  , inset -2px -2px 1px #7c7;
 }
 #game .brick {
   border-radius: 2px;
   background: #aaa;
   box-shadow:
     inset 0px 1px 3px #fff
-  , inset -1px -1px 2px rgba(5,5,0,1);
+  , inset -1px -1px 2px #000;
+}
+#game .brick.extra {
+  background: #fff;
+}
+#game .brick.double {
+  background: #44c;
+  box-shadow:
+    inset 0px 1px 3px #ddf
+  , inset -1px -1px 2px #001;
+}
+#game .brick.hot {
+  background: #f73;
+  box-shadow:
+    inset 0px 1px 3px #fe7
+  , inset -1px -1px 2px #210;
 }
 #buttons {
   text-align: center;
