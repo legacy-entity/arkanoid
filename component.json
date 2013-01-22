@@ -12,7 +12,8 @@
     "entity/mouse": "*",
     "entity/entity": "*",
     "entity/uid": "*",
-    "entity/dom": "*"
+    "entity/dom": "*",
+    "entity/log": "*"
   },
   "scripts": ["arkanoid.js"],
   "styles": ["arkanoid.css"]

@@ -29,6 +29,7 @@ var motion = require('motion')
 var loop = require('loop')()
 var input = require('mouse')(game.el)
 var dom = require('dom')(game.el)
+var log = require('log')(game.el)
 
 /**
  * Create a world manager.

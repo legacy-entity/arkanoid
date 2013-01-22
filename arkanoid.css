@@ -78,3 +78,12 @@ html, body {
   color: black;
   cursor: pointer;
 }
+.log {
+  z-index: 99999;
+  color: #fff;
+  font-size: 10px;
+  line-height: 10px;
+  text-shadow: 1px 1px #000;
+  top: -10px;
+  position: absolute;
+}
