@@ -12,10 +12,13 @@
 var v = require('vector')
 var rect = require('rect')
 var manager = require('manager')
+var Entity = require('entity')
 
 /**
  * Main game object.
  */
+
+var defaults = require('./defaults')
 
 var game = module.exports = {}
 game.el = document.getElementById('game')
@@ -26,9 +29,9 @@ game.el = document.getElementById('game')
 
 var position = require('position')
 var motion = require('motion')
-var loop = require('loop')()
+var loop = require('loop')(defaults)
 var input = require('mouse')(game.el)
-var dom = require('dom')(game.el)
+var render = require('dom')(game.el)
 var log = require('log')(game.el)
 
 /**
